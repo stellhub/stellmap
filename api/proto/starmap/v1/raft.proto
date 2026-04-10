@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package starmap.v1;
+
+option go_package = "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1";
+
+// raft.proto 定义内部 Raft gRPC 复制接口与消息模型。
+//
+// 设计原因：
+// 1. 这是内部复制面协议，不对业务侧开放。
+// 2. 内部 transport 统一强绑定 gRPC，便于明确协议边界、复用流控与连接管理能力。
+// 3. Raft message 天然是机器间协议，使用 gRPC 比对外 HTTP 更适合。
+
+// RaftTransport 定义节点间 Raft 消息复制接口。
+service RaftTransport {
+  // Send 批量发送一组 Raft 消息。
+  //
+  // 设计原因：
+  // 1. Raft 消息天然适合批量发送，能减少 RPC 次数和网络包开销。
+  // 2. 返回空 ack 即可，具体消息处理结果由上层重试、超时和 Raft 状态机自行消化。
+  rpc Send(RaftMessageBatch) returns (RaftMessageAck);
+}
+
+// RaftEnvelope 表示一条待传输的 Raft 消息封装。
+//
+// 设计原因：
+// 1. from/to 在传输层显式带出，便于网关、代理和日志排查。
+// 2. payload 保持二进制，方便直接承载 etcd-io/raft 的消息编码结果，
+//    避免在 proto 层重复定义完整 raftpb.Message 字段。
+message RaftEnvelope {
+  // from 表示消息发送方节点 ID。
+  uint64 from = 1;
+  // to 表示消息接收方节点 ID。
+  uint64 to = 2;
+  // payload 表示序列化后的 Raft 消息二进制内容。
+  bytes payload = 3;
+}
+
+// RaftMessageBatch 表示一个 gRPC 批次内包含的多条 Raft 消息。
+message RaftMessageBatch {
+  // messages 是待发送的消息列表。
+  repeated RaftEnvelope messages = 1;
+}
+
+// RaftMessageAck 表示接收端已完成一批消息的协议层确认。
+//
+// 当前不带字段，后续如需补充接收统计、错误明细或背压信息，可在这里扩展。
+message RaftMessageAck {}

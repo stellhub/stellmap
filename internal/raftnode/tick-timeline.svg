@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
+  <title id="title">Raft Tick Timeline</title>
+  <desc id="desc">TickInterval、HeartbeatTick 和 ElectionTick 的时间线示意图。</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #dbe4ee; stroke-width: 1.5; rx: 18; ry: 18; }
+      .axis { stroke: #1f2937; stroke-width: 3; }
+      .tick { stroke: #94a3b8; stroke-width: 2; }
+      .heart { fill: #16a34a; }
+      .heart-line { stroke: #16a34a; stroke-width: 3; }
+      .timeout { fill: #dc2626; }
+      .timeout-line { stroke: #dc2626; stroke-width: 4; stroke-dasharray: 10 8; }
+      .leader-band { fill: #dcfce7; }
+      .follower-band { fill: #fee2e2; }
+      .title { font: 700 30px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 18px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #334155; }
+      .label { font: 600 18px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #0f172a; }
+      .small { font: 500 15px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #475569; }
+      .tiny { font: 500 14px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #64748b; }
+      .legend { font: 600 16px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #0f172a; }
+      .mono { font: 600 15px Consolas, "Courier New", monospace; fill: #0f172a; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="620"/>
+  <rect class="panel" x="28" y="24" width="1224" height="572"/>
+
+  <text class="title" x="60" y="72">TickInterval / HeartbeatTick / ElectionTick 时间线</text>
+  <text class="subtitle" x="60" y="106">示例参数：TickInterval = 100ms，HeartbeatTick = 1，ElectionTick = 10</text>
+
+  <rect class="leader-band" x="160" y="150" width="980" height="86" rx="12" ry="12"/>
+  <rect class="follower-band" x="160" y="300" width="980" height="92" rx="12" ry="12"/>
+
+  <text class="label" x="70" y="202">Leader</text>
+  <text class="small" x="60" y="224">每 1 tick 发心跳</text>
+
+  <text class="label" x="56" y="352">Follower</text>
+  <text class="small" x="40" y="374">连续 10 tick 未收到消息则选举</text>
+
+  <line class="axis" x1="160" y1="455" x2="1140" y2="455"/>
+
+  <line class="tick" x1="160" y1="443" x2="160" y2="467"/>
+  <text class="mono" x="144" y="492">0</text>
+  <text class="tiny" x="135" y="515">0ms</text>
+
+  <line class="tick" x1="258" y1="443" x2="258" y2="467"/>
+  <text class="mono" x="244" y="492">1</text>
+  <text class="tiny" x="227" y="515">100ms</text>
+
+  <line class="tick" x1="356" y1="443" x2="356" y2="467"/>
+  <text class="mono" x="342" y="492">2</text>
+  <text class="tiny" x="325" y="515">200ms</text>
+
+  <line class="tick" x1="454" y1="443" x2="454" y2="467"/>
+  <text class="mono" x="440" y="492">3</text>
+  <text class="tiny" x="423" y="515">300ms</text>
+
+  <line class="tick" x1="552" y1="443" x2="552" y2="467"/>
+  <text class="mono" x="538" y="492">4</text>
+  <text class="tiny" x="521" y="515">400ms</text>
+
+  <line class="tick" x1="650" y1="443" x2="650" y2="467"/>
+  <text class="mono" x="636" y="492">5</text>
+  <text class="tiny" x="619" y="515">500ms</text>
+
+  <line class="tick" x1="748" y1="443" x2="748" y2="467"/>
+  <text class="mono" x="734" y="492">6</text>
+  <text class="tiny" x="717" y="515">600ms</text>
+
+  <line class="tick" x1="846" y1="443" x2="846" y2="467"/>
+  <text class="mono" x="832" y="492">7</text>
+  <text class="tiny" x="815" y="515">700ms</text>
+
+  <line class="tick" x1="944" y1="443" x2="944" y2="467"/>
+  <text class="mono" x="930" y="492">8</text>
+  <text class="tiny" x="913" y="515">800ms</text>
+
+  <line class="tick" x1="1042" y1="443" x2="1042" y2="467"/>
+  <text class="mono" x="1028" y="492">9</text>
+  <text class="tiny" x="1011" y="515">900ms</text>
+
+  <line class="tick" x1="1140" y1="443" x2="1140" y2="467"/>
+  <text class="mono" x="1118" y="492">10</text>
+  <text class="tiny" x="1091" y="515">1000ms</text>
+
+  <line class="heart-line" x1="258" y1="172" x2="258" y2="138"/>
+  <circle class="heart" cx="258" cy="172" r="8"/>
+  <text class="small" x="225" y="132">心跳</text>
+
+  <line class="heart-line" x1="356" y1="172" x2="356" y2="138"/>
+  <circle class="heart" cx="356" cy="172" r="8"/>
+
+  <line class="heart-line" x1="454" y1="172" x2="454" y2="138"/>
+  <circle class="heart" cx="454" cy="172" r="8"/>
+
+  <line class="heart-line" x1="552" y1="172" x2="552" y2="138"/>
+  <circle class="heart" cx="552" cy="172" r="8"/>
+
+  <line class="heart-line" x1="650" y1="172" x2="650" y2="138"/>
+  <circle class="heart" cx="650" cy="172" r="8"/>
+
+  <line class="heart-line" x1="748" y1="172" x2="748" y2="138"/>
+  <circle class="heart" cx="748" cy="172" r="8"/>
+
+  <line class="heart-line" x1="846" y1="172" x2="846" y2="138"/>
+  <circle class="heart" cx="846" cy="172" r="8"/>
+
+  <line class="heart-line" x1="944" y1="172" x2="944" y2="138"/>
+  <circle class="heart" cx="944" cy="172" r="8"/>
+
+  <line class="heart-line" x1="1042" y1="172" x2="1042" y2="138"/>
+  <circle class="heart" cx="1042" cy="172" r="8"/>
+
+  <line class="heart-line" x1="1140" y1="172" x2="1140" y2="138"/>
+  <circle class="heart" cx="1140" cy="172" r="8"/>
+
+  <line class="timeout-line" x1="1140" y1="300" x2="1140" y2="130"/>
+  <polygon class="timeout" points="1140,118 1132,134 1148,134"/>
+  <text class="label" x="968" y="122">ElectionTick 到达，Follower 进入选举</text>
+
+  <line class="axis" x1="258" y1="344" x2="1130" y2="344"/>
+  <text class="small" x="232" y="328">等待心跳</text>
+  <text class="small" x="916" y="328">如果一直没有收到 Leader 消息</text>
+
+  <rect x="62" y="546" width="18" height="18" rx="4" ry="4" fill="#16a34a"/>
+  <text class="legend" x="92" y="560">绿色心跳点：Leader 每 1 个 tick 发送一次心跳</text>
+
+  <rect x="600" y="546" width="18" height="18" rx="4" ry="4" fill="#dc2626"/>
+  <text class="legend" x="630" y="560">红色虚线：Follower 在第 10 个 tick 判定超时并发起选举</text>
+
+  <text class="tiny" x="60" y="590">要点：HeartbeatTick 和 ElectionTick 是 tick 数；真正的时间由 TickInterval 决定。</text>
+</svg>

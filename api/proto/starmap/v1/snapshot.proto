@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package starmap.v1;
+
+option go_package = "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1";
+
+// snapshot.proto 定义内部快照 gRPC 传输接口与消息模型。
+//
+// 设计原因：
+// 1. 快照是独立文件，不应复用普通 Raft 消息接口。
+// 2. 快照文件可能较大，因此内部 transport 明确采用 gRPC 流式接口。
+// 3. 安装与下载都需要分块、偏移和校验信息，流式传输最合适。
+
+// SnapshotService 定义快照传输接口。
+service SnapshotService {
+  // Install 将一个快照流式安装到目标节点。
+  //
+  // 设计原因：
+  // 1. 落后节点在日志无法追平时，需要通过快照直接恢复状态机。
+  // 2. 使用客户端流式上传，便于分片写入、校验和重试。
+  rpc Install(stream InstallSnapshotChunk) returns (InstallSnapshotResponse);
+
+  // Download 从目标节点下载一个指定快照。
+  //
+  // 设计原因：
+  // 1. 便于 follower 按需拉取快照。
+  // 2. 服务端流式下载更适合大文件传输场景。
+  rpc Download(DownloadSnapshotRequest) returns (stream DownloadSnapshotChunk);
+}
+
+// SnapshotMetadata 描述一个快照的关键元信息。
+//
+// 设计原因：
+// 1. term/index/conf_state 是安装快照和恢复集群视图的核心依据。
+// 2. checksum/file_size 用于传输校验和完整性检查。
+message SnapshotMetadata {
+  // term 是生成该快照时对应的 Raft 任期。
+  uint64 term = 1;
+  // index 是该快照覆盖到的最后一个已应用日志索引。
+  uint64 index = 2;
+  // conf_state 是快照时刻的成员配置序列化结果。
+  bytes conf_state = 3;
+  // checksum 是整个快照文件内容校验值。
+  string checksum = 4;
+  // file_size 是快照文件总字节数。
+  uint64 file_size = 5;
+}
+
+// InstallSnapshotChunk 表示安装快照时上传的一个数据块。
+message InstallSnapshotChunk {
+  // metadata 是快照元信息。
+  //
+  // 通常首块必须携带完整 metadata，后续块可按实现选择是否重复携带。
+  SnapshotMetadata metadata = 1;
+  // data 是当前块的原始二进制数据。
+  bytes data = 2;
+  // offset 是当前块在整个快照文件中的起始偏移。
+  uint64 offset = 3;
+  // eof 表示当前块是否为最后一个块。
+  bool eof = 4;
+}
+
+// InstallSnapshotResponse 表示快照安装结果。
+message InstallSnapshotResponse {
+  // term 是已安装快照的任期。
+  uint64 term = 1;
+  // index 是已安装快照覆盖到的日志索引。
+  uint64 index = 2;
+}
+
+// DownloadSnapshotRequest 表示下载快照请求。
+message DownloadSnapshotRequest {
+  // term 是待下载快照的任期。
+  uint64 term = 1;
+  // index 是待下载快照的索引。
+  uint64 index = 2;
+}
+
+// DownloadSnapshotChunk 表示下载快照时返回的一个数据块。
+message DownloadSnapshotChunk {
+  // metadata 是快照元信息。
+  SnapshotMetadata metadata = 1;
+  // data 是当前返回块的原始二进制数据。
+  bytes data = 2;
+  // offset 是当前块在整个快照文件中的起始偏移。
+  uint64 offset = 3;
+  // eof 表示当前块是否为最后一个块。
+  bool eof = 4;
+}
