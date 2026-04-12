@@ -11,6 +11,10 @@ on:
         description: "上传完成后在目标机器执行的命令；留空则只上传"
         required: false
         default: ""
+      remote_service_name:
+        description: "远程 systemd 服务名；用于启动失败时抓取日志，默认 starmapd"
+        required: false
+        default: "starmapd"
   push:
     tags:
       - "v*"
@@ -32,6 +36,7 @@ jobs:
       VM_USER: ${{ vars.VM_USER || secrets.VM_USER }}
       VM_PORT: ${{ vars.VM_PORT || secrets.VM_PORT || '22' }}
       REMOTE_POST_UPLOAD_CMD: ${{ github.event.inputs.remote_post_upload_cmd || vars.REMOTE_POST_UPLOAD_CMD }}
+      REMOTE_SERVICE_NAME: ${{ github.event.inputs.remote_service_name || vars.REMOTE_SERVICE_NAME || 'starmapd' }}
       VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
       VM_SSH_PASSWORD: ${{ secrets.VM_SSH_PASSWORD }}
     steps:
@@ -90,6 +95,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openssh-client sshpass
 
+      - name: Print release directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "==> dist/release contents"
+          ls -lah dist/release
+
       - name: Prepare SSH auth
         shell: bash
         run: |
@@ -132,8 +144,14 @@ jobs:
             -o UserKnownHostsFile="${HOME}/.ssh/known_hosts"
             -p "${VM_PORT}"
           )
+          scp_base_args=(
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts"
+            -P "${VM_PORT}"
+          )
           if [[ "${SSH_AUTH_MODE}" == "key" ]]; then
             ssh_base_args+=(-i "${HOME}/.ssh/id_rsa")
+            scp_base_args+=(-i "${HOME}/.ssh/id_rsa")
           fi
 
           run_ssh() {
@@ -149,27 +167,69 @@ jobs:
           run_scp() {
             local host="$1"
             if [[ "${SSH_AUTH_MODE}" == "password" ]]; then
-              sshpass -e scp "${ssh_base_args[@]}" dist/release/* "${VM_USER}@${host}:${REMOTE_DIR}/"
+              sshpass -e scp "${scp_base_args[@]}" dist/release/* "${VM_USER}@${host}:${REMOTE_DIR}/"
             else
-              scp "${ssh_base_args[@]}" dist/release/* "${VM_USER}@${host}:${REMOTE_DIR}/"
+              scp "${scp_base_args[@]}" dist/release/* "${VM_USER}@${host}:${REMOTE_DIR}/"
             fi
           }
+
+          print_remote_debug() {
+            local host="$1"
+
+            echo "==> [${host}] collecting remote debug info for service ${REMOTE_SERVICE_NAME}"
+            run_ssh "${host}" "\
+              set +e; \
+              echo '--- systemctl status ${REMOTE_SERVICE_NAME} ---'; \
+              sudo systemctl status '${REMOTE_SERVICE_NAME}' --no-pager -l || true; \
+              echo '--- journalctl ${REMOTE_SERVICE_NAME} (last 80 lines) ---'; \
+              sudo journalctl -u '${REMOTE_SERVICE_NAME}' -n 80 --no-pager || true"
+          }
+
+          host_failures=0
 
           IFS=';' read -r -a host_array <<< "${VM_HOSTS}"
           for raw_host in "${host_array[@]}"; do
             host="$(echo "${raw_host}" | xargs)"
             [[ -n "${host}" ]] || continue
 
-            echo "==> uploading files to ${host}"
-            run_ssh "${host}" "mkdir -p '${REMOTE_DIR}'"
-            run_scp "${host}"
-            run_ssh "${host}" "chmod +x '${REMOTE_DIR}/starmapd' '${REMOTE_DIR}/starmapctl' '${REMOTE_DIR}/start.sh'"
+            echo "==> [${host}] preparing remote directory ${REMOTE_DIR}"
+            if ! run_ssh "${host}" "mkdir -p '${REMOTE_DIR}'"; then
+              echo "ERROR: [${host}] failed to create remote directory ${REMOTE_DIR}"
+              host_failures=$((host_failures + 1))
+              continue
+            fi
+
+            echo "==> [${host}] uploading dist/release/*"
+            if ! run_scp "${host}"; then
+              echo "ERROR: [${host}] file upload failed"
+              host_failures=$((host_failures + 1))
+              continue
+            fi
+
+            echo "==> [${host}] marking binaries executable"
+            if ! run_ssh "${host}" "chmod +x '${REMOTE_DIR}/starmapd' '${REMOTE_DIR}/starmapctl' '${REMOTE_DIR}/start.sh'"; then
+              echo "ERROR: [${host}] chmod failed after upload"
+              host_failures=$((host_failures + 1))
+              continue
+            fi
 
             if [[ -n "${REMOTE_POST_UPLOAD_CMD}" ]]; then
-              echo "==> running post upload command on ${host}"
-              run_ssh "${host}" "cd '${REMOTE_DIR}' && ${REMOTE_POST_UPLOAD_CMD}"
+              echo "==> [${host}] running post upload command"
+              if ! run_ssh "${host}" "cd '${REMOTE_DIR}' && ${REMOTE_POST_UPLOAD_CMD}"; then
+                echo "ERROR: [${host}] post upload command failed"
+                print_remote_debug "${host}" || true
+                host_failures=$((host_failures + 1))
+                continue
+              fi
             fi
+
+            echo "==> [${host}] completed successfully"
           done
+
+          if (( host_failures > 0 )); then
+            echo "ERROR: ${host_failures} host(s) failed during upload or remote execution"
+            exit 1
+          fi
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
