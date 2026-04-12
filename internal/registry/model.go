@@ -80,6 +80,27 @@ type Query struct {
 	Limit     int
 }
 
+// MatchQuery 判断实例是否满足查询过滤条件。
+func MatchQuery(value Value, query Query) bool {
+	if query.Namespace != "" && value.Namespace != query.Namespace {
+		return false
+	}
+	if query.Service != "" && value.Service != query.Service {
+		return false
+	}
+	if query.Zone != "" && value.Zone != query.Zone {
+		return false
+	}
+	if !MatchesLabelSelector(value.Labels, query.Selector) {
+		return false
+	}
+	if query.Endpoint != "" && len(FilterEndpoints(value.Endpoints, query.Endpoint)) == 0 {
+		return false
+	}
+
+	return true
+}
+
 // NormalizeInstanceIdentity 统一清理注册中心实例身份字段两端的空白字符。
 func NormalizeInstanceIdentity(namespace, service, instanceID *string) {
 	*namespace = strings.TrimSpace(*namespace)
@@ -262,6 +283,24 @@ func ServicePrefix(namespace, service string) string {
 // Key 生成注册中心实例在状态机中的 KV key。
 func Key(namespace, service, instanceID string) []byte {
 	return []byte(fmt.Sprintf("%s%s/%s/%s", RootPrefix, namespace, service, instanceID))
+}
+
+// ParseKey 反解注册中心实例在状态机中的 KV key。
+func ParseKey(key []byte) (namespace, service, instanceID string, ok bool) {
+	raw := string(key)
+	if !strings.HasPrefix(raw, RootPrefix) {
+		return "", "", "", false
+	}
+
+	parts := strings.Split(strings.TrimPrefix(raw, RootPrefix), "/")
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	if strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[2]) == "" {
+		return "", "", "", false
+	}
+
+	return parts[0], parts[1], parts[2], true
 }
 
 // EffectiveLeaseTTLSeconds 返回实例的有效 TTL。

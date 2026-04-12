@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -13,47 +14,45 @@ import (
 
 	daemonapp "github.com/chenwenlong-java/StarMap/internal/app"
 	"github.com/chenwenlong-java/StarMap/internal/raftnode"
+	"github.com/chenwenlong-java/StarMap/internal/registry"
+	"github.com/chenwenlong-java/StarMap/internal/replication"
 	"github.com/chenwenlong-java/StarMap/internal/runtime"
 	"github.com/chenwenlong-java/StarMap/internal/snapshot"
 	grpctransport "github.com/chenwenlong-java/StarMap/internal/transport/grpc"
 	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 )
 
 type daemonConfig = daemonapp.Config
 type serverApp = daemonapp.App
 
-const (
-	defaultHTTPAddr                   = daemonapp.DefaultHTTPAddr
-	defaultAdminAddr                  = daemonapp.DefaultAdminAddr
-	defaultGRPCAddr                   = daemonapp.DefaultGRPCAddr
-	defaultShutdownTimeout            = daemonapp.DefaultShutdownTimeout
-	defaultRequestTimeout             = daemonapp.DefaultRequestTimeout
-	defaultRegistryCleanupInterval    = daemonapp.DefaultRegistryCleanupInterval
-	defaultRegistryCleanupDeleteLimit = daemonapp.DefaultRegistryCleanupDeleteLimit
-	adminTokenEnvKey                  = daemonapp.AdminTokenEnvKey
-)
-
 // main 是 starmapd 的服务进程入口。
 //
 // 启动前提：
-// 1. 必须通过 `--admin-token` 或环境变量 `STARMAP_ADMIN_TOKEN` 提供控制面固定鉴权 token。
-// 2. admin listener 当前默认只允许 `127.0.0.1` 访问，因此控制面运维通常需要在节点本机执行。
+// 1. 推荐通过 `--config` 指向 TOML 配置文件提供完整启动配置。
+// 2. 命令行参数会覆盖配置文件中的同名字段。
+// 3. admin listener 当前只允许 `127.0.0.1` 访问，因此控制面运维通常需要在节点本机执行。
 //
 // 单节点启动示例：
 //
-//	go run ./cmd/starmapd --node-id=1 --cluster-id=100 --data-dir=./data/node-1 --http-addr=:8080 --admin-addr=127.0.0.1:18080 --admin-token=your-admin-token --grpc-addr=:19090
+//	go run ./cmd/starmapd --config=./config/starmapd.toml
 //
 // 三节点启动示例中的单个节点：
 //
-//	go run ./cmd/starmapd --node-id=1 --cluster-id=100 --data-dir=./data/node-1 --http-addr=:8080 --admin-addr=127.0.0.1:18080 --admin-token=your-admin-token --grpc-addr=:19090 --peer-ids=1,2,3 --peer-grpc-addrs=1=127.0.0.1:19090,2=127.0.0.1:19091,3=127.0.0.1:19092 --peer-http-addrs=1=127.0.0.1:8080,2=127.0.0.1:8081,3=127.0.0.1:8082 --peer-admin-addrs=1=127.0.0.1:18080,2=127.0.0.1:18081,3=127.0.0.1:18082
+//	go run ./cmd/starmapd --config=/etc/starmapd/starmapd-node-1.toml
 //
 // 当前职责：
 // 1. 解析启动配置。
 // 2. 装配 raftnode、runtime、grpc/http server。
 // 3. 启动应用并处理优雅退出。
 func main() {
-	cfg := parseFlags()
+	cfg, err := parseFlags()
+	if err != nil {
+		log.Fatalf("parse flags failed: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -67,7 +66,8 @@ func main() {
 		log.Fatalf("start starmapd failed: %v", err)
 	}
 
-	log.Printf("starmapd started, node_id=%d cluster_id=%d http=%s admin=%s grpc=%s data_dir=%s", cfg.NodeID, cfg.ClusterID, cfg.HTTPAddr, cfg.AdminAddr, cfg.GRPCAddr, cfg.DataDir)
+	effectiveCfg := app.Config()
+	log.Printf("starmapd started, node_id=%d cluster_id=%d http=%s admin=%s grpc=%s data_dir=%s", effectiveCfg.NodeID, effectiveCfg.ClusterID, effectiveCfg.HTTPAddr, effectiveCfg.AdminAddr, effectiveCfg.GRPCAddr, effectiveCfg.DataDir)
 
 	select {
 	case <-ctx.Done():
@@ -78,7 +78,7 @@ func main() {
 		}
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), effectiveCfg.ShutdownTimeout)
 	defer cancel()
 	if err := app.Stop(shutdownCtx); err != nil {
 		log.Fatalf("stop starmapd failed: %v", err)
@@ -126,12 +126,19 @@ func newServerApp(cfg daemonConfig) (*serverApp, error) {
 	grpctransport.NewServer(internalService).RegisterHandlers(grpcServer)
 
 	peerTransport := runtime.NewPeerTransport(validated.NodeID, book, runtime.DefaultSnapshotChunk)
-	registry := httptransport.NewRegistryHandler(node, validated.HTTPAddr, book, defaultRequestTimeout)
-	health := httptransport.NewHealthHandler(node, validated.HTTPAddr, book)
-	control := httptransport.NewControlHandler(node, validated.ClusterID, validated.AdminAddr, book, peerTransport, defaultRequestTimeout)
+	watchHub := registry.NewWatchHub()
+	replicationTracker := replication.NewTracker()
+	metricsRegistry := prometheus.NewRegistry()
+	_ = metricsRegistry.Register(collectors.NewGoCollector())
+	_ = metricsRegistry.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	_ = metricsRegistry.Register(replication.NewCollector(replicationTracker))
+	metricsHandler := promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{})
+	registryHandler := httptransport.NewRegistryHandler(node, validated.HTTPAddr, book, watchHub, validated.Region, fmt.Sprintf("%d", validated.ClusterID), validated.ReplicationToken, validated.PrometheusSDToken, validated.RequestTimeout)
+	health := httptransport.NewHealthHandler(node, validated.HTTPAddr, book, replicationTracker, metricsHandler)
+	control := httptransport.NewControlHandler(node, validated.ClusterID, validated.AdminAddr, book, peerTransport, replicationTracker, validated.RequestTimeout)
 	httpServer := &http.Server{
 		Addr:    validated.HTTPAddr,
-		Handler: httptransport.NewPublicServer(registry, health).Handler(),
+		Handler: httptransport.NewPublicServer(registryHandler, health).Handler(),
 	}
 	adminServer := &http.Server{
 		Addr:    validated.AdminAddr,
@@ -139,13 +146,15 @@ func newServerApp(cfg daemonConfig) (*serverApp, error) {
 	}
 
 	return daemonapp.New(validated, daemonapp.Components{
-		Node:             node,
-		HTTPServer:       httpServer,
-		AdminServer:      adminServer,
-		GRPCServer:       grpcServer,
-		AddressBook:      book,
-		PeerTransport:    peerTransport,
-		TransportService: internalService,
+		Node:               node,
+		HTTPServer:         httpServer,
+		AdminServer:        adminServer,
+		GRPCServer:         grpcServer,
+		AddressBook:        book,
+		PeerTransport:      peerTransport,
+		TransportService:   internalService,
+		RegistryWatchHub:   watchHub,
+		ReplicationTracker: replicationTracker,
 	})
 }
 

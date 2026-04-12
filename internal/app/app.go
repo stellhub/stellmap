@@ -9,13 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/chenwenlong-java/StarMap/internal/raftnode"
 	"github.com/chenwenlong-java/StarMap/internal/registry"
+	"github.com/chenwenlong-java/StarMap/internal/replication"
 	"github.com/chenwenlong-java/StarMap/internal/runtime"
 	"github.com/chenwenlong-java/StarMap/internal/storage"
 	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
@@ -23,43 +23,40 @@ import (
 	"google.golang.org/grpc"
 )
 
-const (
-	DefaultHTTPAddr                   = ":8080"
-	DefaultAdminAddr                  = "127.0.0.1:18080"
-	DefaultGRPCAddr                   = ":19090"
-	DefaultShutdownTimeout            = 10 * time.Second
-	DefaultRequestTimeout             = 5 * time.Second
-	DefaultRegistryCleanupInterval    = 1 * time.Second
-	DefaultRegistryCleanupDeleteLimit = 128
-	AdminTokenEnvKey                  = "STARMAP_ADMIN_TOKEN"
-)
-
 // Config 描述 starmapd 的启动配置。
 type Config struct {
 	NodeID                     uint64
 	ClusterID                  uint64
+	Region                     string
 	DataDir                    string
 	HTTPAddr                   string
 	AdminAddr                  string
 	AdminToken                 string
+	ReplicationToken           string
+	PrometheusSDToken          string
+	ReplicationTargetsFile     string
 	GRPCAddr                   string
 	PeerIDs                    string
 	PeerGRPCAddrs              string
 	PeerHTTPAddrs              string
 	PeerAdminAddrs             string
+	RequestTimeout             time.Duration
+	ShutdownTimeout            time.Duration
 	RegistryCleanupInterval    time.Duration
 	RegistryCleanupDeleteLimit int
 }
 
 // Components 描述构造 App 时注入的运行时组件。
 type Components struct {
-	Node             *raftnode.RaftNode
-	HTTPServer       *http.Server
-	AdminServer      *http.Server
-	GRPCServer       *grpc.Server
-	AddressBook      *runtime.AddressBook
-	PeerTransport    *runtime.PeerTransport
-	TransportService *runtime.InternalTransportService
+	Node               *raftnode.RaftNode
+	HTTPServer         *http.Server
+	AdminServer        *http.Server
+	GRPCServer         *grpc.Server
+	AddressBook        *runtime.AddressBook
+	PeerTransport      *runtime.PeerTransport
+	TransportService   *runtime.InternalTransportService
+	RegistryWatchHub   *registry.WatchHub
+	ReplicationTracker *replication.Tracker
 }
 
 // App 是 starmapd 的运行时应用对象。
@@ -73,13 +70,16 @@ type App struct {
 	addressBook           *runtime.AddressBook
 	peerTransport         *runtime.PeerTransport
 	transportService      *runtime.InternalTransportService
+	registryWatchHub      *registry.WatchHub
+	replicationTracker    *replication.Tracker
+	replicationTargets    []ReplicationTarget
 	errCh                 chan error
 	runCancel             context.CancelFunc
 	shutdownOnce          sync.Once
 	registryCleanupCursor registry.CleanupCursor
 }
 
-// ValidateConfig 校验并补齐配置默认值。
+// ValidateConfig 校验启动配置。
 func ValidateConfig(cfg Config) (Config, error) {
 	if cfg.NodeID == 0 {
 		return Config{}, errors.New("node-id must be greater than 0")
@@ -87,39 +87,63 @@ func ValidateConfig(cfg Config) (Config, error) {
 	if cfg.ClusterID == 0 {
 		return Config{}, errors.New("cluster-id must be greater than 0")
 	}
-	if cfg.DataDir == "" {
-		cfg.DataDir = filepath.Join("data", fmt.Sprintf("node-%d", cfg.NodeID))
+	if strings.TrimSpace(cfg.Region) == "" {
+		return Config{}, errors.New("region is required")
 	}
-	if cfg.HTTPAddr == "" {
-		cfg.HTTPAddr = DefaultHTTPAddr
+	if strings.TrimSpace(cfg.DataDir) == "" {
+		return Config{}, errors.New("data-dir is required")
 	}
-	if cfg.AdminAddr == "" {
-		cfg.AdminAddr = DefaultAdminAddr
+	if strings.TrimSpace(cfg.HTTPAddr) == "" {
+		return Config{}, errors.New("http-addr is required")
 	}
-	if cfg.GRPCAddr == "" {
-		cfg.GRPCAddr = DefaultGRPCAddr
+	if strings.TrimSpace(cfg.AdminAddr) == "" {
+		return Config{}, errors.New("admin-addr is required")
+	}
+	if strings.TrimSpace(cfg.GRPCAddr) == "" {
+		return Config{}, errors.New("grpc-addr is required")
 	}
 	if strings.TrimSpace(cfg.AdminToken) == "" {
-		cfg.AdminToken = strings.TrimSpace(os.Getenv(AdminTokenEnvKey))
+		return Config{}, errors.New("admin-token is required")
 	}
-	if cfg.AdminToken == "" {
-		return Config{}, fmt.Errorf("admin-token is required, set --admin-token or %s", AdminTokenEnvKey)
+	if strings.TrimSpace(cfg.ReplicationToken) == "" {
+		return Config{}, errors.New("replication-token is required")
 	}
-	if cfg.RegistryCleanupInterval < 0 {
+	if strings.TrimSpace(cfg.PrometheusSDToken) == "" {
+		return Config{}, errors.New("prometheus-sd-token is required")
+	}
+	if cfg.RequestTimeout <= 0 {
+		return Config{}, errors.New("request-timeout must be greater than 0")
+	}
+	if cfg.ShutdownTimeout <= 0 {
+		return Config{}, errors.New("shutdown-timeout must be greater than 0")
+	}
+	if cfg.RegistryCleanupInterval <= 0 {
 		return Config{}, errors.New("registry-cleanup-interval must be greater than 0")
 	}
-	if cfg.RegistryCleanupInterval == 0 {
-		cfg.RegistryCleanupInterval = DefaultRegistryCleanupInterval
-	}
-	if cfg.RegistryCleanupDeleteLimit < 0 {
+	if cfg.RegistryCleanupDeleteLimit <= 0 {
 		return Config{}, errors.New("registry-cleanup-delete-limit must be greater than 0")
 	}
-	if cfg.RegistryCleanupDeleteLimit == 0 {
-		cfg.RegistryCleanupDeleteLimit = DefaultRegistryCleanupDeleteLimit
-	}
+	cfg.Region = strings.TrimSpace(cfg.Region)
+	cfg.DataDir = strings.TrimSpace(cfg.DataDir)
+	cfg.HTTPAddr = strings.TrimSpace(cfg.HTTPAddr)
+	cfg.AdminAddr = strings.TrimSpace(cfg.AdminAddr)
+	cfg.GRPCAddr = strings.TrimSpace(cfg.GRPCAddr)
+	cfg.AdminToken = strings.TrimSpace(cfg.AdminToken)
+	cfg.ReplicationToken = strings.TrimSpace(cfg.ReplicationToken)
+	cfg.PrometheusSDToken = strings.TrimSpace(cfg.PrometheusSDToken)
+	cfg.ReplicationTargetsFile = strings.TrimSpace(cfg.ReplicationTargetsFile)
+	cfg.PeerIDs = strings.TrimSpace(cfg.PeerIDs)
+	cfg.PeerGRPCAddrs = strings.TrimSpace(cfg.PeerGRPCAddrs)
+	cfg.PeerHTTPAddrs = strings.TrimSpace(cfg.PeerHTTPAddrs)
+	cfg.PeerAdminAddrs = strings.TrimSpace(cfg.PeerAdminAddrs)
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return Config{}, err
 	}
+	replicationTargets, err := LoadReplicationTargets(cfg.ReplicationTargetsFile)
+	if err != nil {
+		return Config{}, err
+	}
+	_ = replicationTargets
 
 	return cfg, nil
 }
@@ -151,17 +175,30 @@ func New(cfg Config, components Components) (*App, error) {
 	if components.TransportService == nil {
 		return nil, errors.New("transport service is required")
 	}
+	if components.RegistryWatchHub == nil {
+		components.RegistryWatchHub = registry.NewWatchHub()
+	}
+	if components.ReplicationTracker == nil {
+		components.ReplicationTracker = replication.NewTracker()
+	}
+	replicationTargets, err := LoadReplicationTargets(validated.ReplicationTargetsFile)
+	if err != nil {
+		return nil, err
+	}
 
 	return &App{
-		cfg:              validated,
-		node:             components.Node,
-		httpServer:       components.HTTPServer,
-		adminServer:      components.AdminServer,
-		grpcServer:       components.GRPCServer,
-		addressBook:      components.AddressBook,
-		peerTransport:    components.PeerTransport,
-		transportService: components.TransportService,
-		errCh:            make(chan error, 4),
+		cfg:                validated,
+		node:               components.Node,
+		httpServer:         components.HTTPServer,
+		adminServer:        components.AdminServer,
+		grpcServer:         components.GRPCServer,
+		addressBook:        components.AddressBook,
+		peerTransport:      components.PeerTransport,
+		transportService:   components.TransportService,
+		registryWatchHub:   components.RegistryWatchHub,
+		replicationTracker: components.ReplicationTracker,
+		replicationTargets: replicationTargets,
+		errCh:              make(chan error, 4),
 	}, nil
 }
 
@@ -218,6 +255,7 @@ func (a *App) Start(ctx context.Context) error {
 	go a.serveAdmin()
 	go a.forwardReadyLoop(runCtx)
 	go a.cleanupExpiredRegistryLoop(runCtx)
+	go a.replicationLoop(runCtx)
 
 	return nil
 }
@@ -342,7 +380,7 @@ func (a *App) cleanupExpiredRegistryLoop(ctx context.Context) {
 			if !a.isRegistryCleanupLeader() {
 				continue
 			}
-			cleanupCtx, cancel := context.WithTimeout(ctx, DefaultRequestTimeout)
+			cleanupCtx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout)
 			err := a.CleanupExpiredRegistry(cleanupCtx)
 			cancel()
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -369,6 +407,7 @@ func (a *App) forwardReadyLoop(ctx context.Context) {
 				return
 			}
 			a.applyCommittedControlEntries(ready.CommittedEntries)
+			a.publishRegistryEvents(ready.CommittedEntries)
 			if err := a.peerTransport.Forward(ctx, ready); err != nil {
 				log.Printf("forward ready messages failed: %v", err)
 			}
@@ -514,5 +553,50 @@ func (a *App) pushErr(err error) {
 	select {
 	case a.errCh <- err:
 	default:
+	}
+}
+
+func (a *App) publishRegistryEvents(entries []raftnode.LogEntry) {
+	if a.registryWatchHub == nil || len(entries) == 0 {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.Raw.Type != raftpb.EntryNormal || len(entry.Data) == 0 {
+			continue
+		}
+
+		var cmd storage.Command
+		if err := json.Unmarshal(entry.Data, &cmd); err != nil {
+			continue
+		}
+
+		namespace, service, instanceID, ok := registry.ParseKey(cmd.Key)
+		if !ok {
+			continue
+		}
+
+		event := registry.WatchEvent{
+			Revision:   entry.Index,
+			Namespace:  namespace,
+			Service:    service,
+			InstanceID: instanceID,
+		}
+
+		switch cmd.Operation {
+		case storage.OperationPut:
+			var value registry.Value
+			if err := json.Unmarshal(cmd.Value, &value); err != nil {
+				continue
+			}
+			event.Type = registry.WatchEventUpsert
+			event.Value = &value
+		case storage.OperationDelete:
+			event.Type = registry.WatchEventDelete
+		default:
+			continue
+		}
+
+		a.registryWatchHub.Publish(event)
 	}
 }

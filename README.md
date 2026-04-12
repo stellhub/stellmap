@@ -59,7 +59,7 @@
 
 这样设计的原因很直接：
 
-- 注册中心的数据模型是纯 `KV`
+- 注册中心的核心对象是服务实例记录
 - 元数据规模通常远小于通用数据库
 - 单 Raft 组可以显著降低实现复杂度
 - 对注册中心来说，一致性、可维护性通常比水平分片更重要
@@ -68,17 +68,18 @@
 
 ### 数据模型
 
-`StarMap` 采用纯 `KV` 数据模型。
+`StarMap` 对外提供的是“实例注册表”模型，而不是通用 `KV` 产品。
 
-- Key：描述命名空间、服务名、实例 ID、元数据路径等逻辑键
-- Value：保存实例注册信息、服务元数据、健康状态、版本信息等内容
-- 语义：上层通过统一键前缀和编码规则组织目录结构，但底层不引入额外关系模型
+- 逻辑主键：`namespace / service / instanceId`
+- 实例内容：保存端点、标签、元数据、租约 TTL、最近心跳等注册信息
+- 对外语义：调用方按“注册实例、查询候选集、续约、watch 变化”来使用系统
+- 对内实现：底层仍然会编码成稳定的键值记录，便于复制、恢复和快照
 
 这种设计便于：
 
-- 直接映射到状态机 apply 流程
-- 简化日志复制与快照恢复
-- 支持按前缀扫描、范围删除、批量 watch 等后续扩展
+- 直接映射到 Raft 提交后的实例变更 apply 流程
+- 简化日志复制、快照恢复和实例过期清理
+- 支持按服务维度查询候选实例、按标签筛选、按事件流 watch 等注册中心能力
 
 ## 一致性模型
 
@@ -137,7 +138,7 @@
 `StarMap` 将持久化职责拆为三部分：
 
 - `WAL`：存储 Raft Log
-- `Pebble`：存储状态机 KV 与少量元数据
+- `Pebble`：存储实例注册表数据与少量本地元数据
 - `Snapshot`：独立快照文件
 
 职责拆分后的目录示意如下：
@@ -171,14 +172,14 @@ data/
 - 写入模式稳定，便于批量刷盘
 - 共识日志与状态机数据解耦，恢复流程更容易实现
 
-### 2. Pebble：状态机 KV + 少量元数据
+### 2. Pebble：实例注册表数据 + 少量元数据
 
 `Pebble` 不保存完整 Raft Log，只保存：
 
-- apply 后的状态机 `KV`
+- apply 后的实例注册数据
 - 少量本地元数据，例如最近一次 apply 的 index / term、当前使用中的 snapshot 元信息，以及租约、压缩点、水位等后续需要持久化的少量控制信息
 
-这样可以避免把 Raft 日志和状态机 KV 混合到一个引擎里，降低 compaction、恢复和空间管理的耦合度。
+这样可以避免把 Raft 日志和注册表数据混合到一个引擎里，降低 compaction、恢复和空间管理的耦合度。
 
 ### 3. Snapshot：独立文件
 
@@ -191,12 +192,12 @@ data/
 快照文件中通常包含：
 
 - 快照元信息：term、index、conf state、checksum
-- 状态机导出的 KV 数据
+- 状态机导出的实例注册表数据
 - 必要的扩展元数据
 
 ## 为什么选择 Pebble
 
-`Pebble` 是 `CockroachDB` 开源的 Go 原生 LSM KV 引擎。
+`Pebble` 是 `CockroachDB` 开源的 Go 原生 LSM `key-value` 引擎。
 
 官方资料：
 
@@ -215,16 +216,16 @@ data/
 
 - Go 原生实现，无需引入 `cgo`
 - 顺序写和读放大控制能力较强，适合高频注册/心跳更新
-- 支持范围删除、快照、批量写，便于状态机实现
+- 支持范围删除、快照、批量写，便于实现实例清理、快照与批量 apply
 - 工程成熟度较高，已在生产环境长期使用
-- 对纯 KV 状态机足够贴合，不需要额外对象层封装
+- 能很好承载“实例注册表记录 + 少量元数据”这类结构化但不复杂的数据形态
 
 ### 优点
 
 - Go 原生，部署与交叉编译友好
 - 写入并发能力强，适合高并发元数据更新
 - LSM 结构适合注册中心这类读多写多、key 前缀明显的数据
-- 对范围扫描、前缀读取、批量 apply 比较友好
+- 对按服务扫描实例、按标签筛选前的候选集读取、批量 apply 比较友好
 - 社区与工业实践较成熟，维护成本低于自研存储引擎
 
 ### 缺点
@@ -238,15 +239,15 @@ data/
 
 | 方案 | 优点 | 缺点 | 结论 |
 | --- | --- | --- | --- |
-| `Pebble` | Go 原生、性能好、成熟、适合纯 KV 状态机 | 有 compaction 成本 | 适合作为状态机存储 |
+| `Pebble` | Go 原生、性能好、成熟、适合承载注册表数据 | 有 compaction 成本 | 适合作为实例注册表存储 |
 | `bbolt` | 实现简单、单文件、易理解 | 单写者模型明显，不适合高并发写 | 不适合高并发注册中心 |
-| `Badger` | Go 原生、KV 能力完整 | 值日志与 GC 运维复杂度更高 | 可用，但状态机可控性不如 Pebble 直接 |
+| `Badger` | Go 原生、KV 能力完整 | 值日志与 GC 运维复杂度更高 | 可用，但对注册表状态管理的可控性不如 Pebble 直接 |
 | `RocksDB` | 生态成熟、能力丰富 | 依赖 `cgo`，运维和构建链更重 | 对轻量级 Go 项目过重 |
 
 因此，`StarMap` 选择：
 
 - `WAL` 负责 Raft 日志
-- `Pebble` 负责状态机 KV
+- `Pebble` 负责实例注册表数据与少量本地元数据
 - `Snapshot` 负责截面恢复
 
 而不是把三类职责全部压进单一存储组件。
@@ -255,9 +256,9 @@ data/
 
 ### 写请求
 
-1. 客户端通过 `HTTP API` 发起写请求
+1. 客户端通过 `HTTP API` 发起注册、注销或心跳续约请求
 2. 非 Leader 节点重定向或转发到 Leader
-3. Leader 将命令编码为状态机 proposal，提交给单 Raft 组
+3. Leader 将实例变更命令编码为 proposal，提交给单 Raft 组
 4. 日志追加到本地 `WAL`
 5. 日志复制到多数派并提交
 6. 状态机按顺序 apply 到 `Pebble`
@@ -265,11 +266,11 @@ data/
 
 ### 读请求
 
-1. 客户端发起读请求
+1. 客户端发起实例查询请求
 2. 请求到达 Leader，或被 Follower 转发到 Leader
 3. Leader 执行 `ReadIndex`
 4. 等待本地 `appliedIndex` 追平到 `readIndex`
-5. 从 `Pebble` 读取最新状态机数据
+5. 从 `Pebble` 读取最新实例注册表视图
 6. 返回线性一致结果
 
 ## 通信设计
@@ -328,7 +329,7 @@ data/
 
 1. 读取本地最新快照元信息
 2. 如果存在有效快照，则先恢复快照文件到状态机工作目录
-3. 打开 `Pebble`，加载状态机 KV 和本地元数据
+3. 打开 `Pebble`，加载实例注册表数据和本地元数据
 4. 打开 `WAL`，读取 `HardState`、`Entry` 和快照点位
 5. 根据快照 index 丢弃已被快照覆盖的旧日志
 6. 将剩余未 apply 的 committed entries 依序 apply 到状态机
@@ -370,7 +371,7 @@ data/
 - 线性一致读测试：并发写入后，所有成功读必须观察到满足实时顺序的最新值
 - 单调读测试：同一客户端连续读取不得回退
 - 写后读测试：写成功返回后，后续线性一致读必须可见
-- 前缀扫描一致性测试：范围读结果必须对应某个线性一致时间点
+- 实例候选集一致性测试：查询结果必须对应某个线性一致时间点
 - Leader 切换测试：选主前后不得出现已确认写丢失
 
 ### Membership 测试
@@ -394,7 +395,7 @@ data/
 
 - 高频注册/注销压测
 - 高频心跳续约压测
-- 大量前缀查询与 watch 场景压测
+- 大量实例查询与 watch 场景压测
 - 长时间 soak test，观察 compaction、fd、内存和尾延迟
 
 ## 模块划分
@@ -414,7 +415,7 @@ data/
 
 ### `wal`
 
-`wal` 负责 Raft Log 的持久化，不承担状态机 KV 存储职责。
+`wal` 负责 Raft Log 的持久化，不承担注册表数据存储职责。
 
 主要职责：
 
@@ -462,13 +463,13 @@ type SnapshotStore interface {
 
 ### `storage`
 
-`storage` 基于 `Pebble` 实现状态机 KV 和少量元数据存储。
+`storage` 基于 `Pebble` 实现实例注册表数据和少量元数据存储。
 
 主要职责：
 
-- 维护业务 `KV`
+- 维护实例注册记录
 - 维护状态机 apply 进度与本地元数据
-- 提供点查、范围读、批量写、范围删除
+- 提供按键读取、范围扫描、批量写、范围删除等底层能力
 - 支持快照导出和快照恢复
 - 保证 apply 幂等与顺序性
 
@@ -519,8 +520,8 @@ raftnode ---- transport/grpc
 
 约束原则：
 
-- `service` 不直接改 `Pebble`，所有写都经由 `raftnode.Propose`
-- 线性一致读由 `raftnode.ReadIndex + storage.Get/Scan` 组合完成
+- `service` 不直接改 `Pebble`，所有实例变更都经由 `raftnode.Propose`
+- 线性一致读由 `raftnode.ReadIndex + storage.Get/Scan` 组合完成，再还原成注册中心视图
 - `wal` 不依赖 `storage`
 - `snapshot` 可以调用 `storage` 导出和恢复，但不反向依赖 `raftnode`
 
@@ -606,15 +607,11 @@ service SnapshotService {
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `PUT` | `/api/v1/kv/{key}` | 写入或覆盖一个 KV |
-| `GET` | `/api/v1/kv/{key}` | 线性一致读取单个 KV |
-| `DELETE` | `/api/v1/kv/{key}` | 删除单个 KV |
-| `GET` | `/api/v1/kv` | 按 `prefix` 查询 KV 列表 |
-| `DELETE` | `/api/v1/kv` | 按 `prefix` 批量删除 |
 | `POST` | `/api/v1/registry/register` | 注册实例 |
 | `POST` | `/api/v1/registry/deregister` | 注销实例 |
 | `POST` | `/api/v1/registry/heartbeat` | 实例续约/心跳 |
 | `GET` | `/api/v1/registry/instances` | 按服务维度查询实例候选集 |
+| `GET` | `/api/v1/registry/watch` | 通过 SSE watch 实例变化 |
 
 ### 注册模型说明
 
@@ -705,6 +702,20 @@ service SnapshotService {
 GET /api/v1/registry/instances?namespace=prod&service=order-service&zone=az1&endpoint=http&selector=color=gray,version%20in%20(v2),!deprecated
 ```
 
+实例 watch 示例：
+
+```text
+GET /api/v1/registry/watch?namespace=prod&service=order-service&selector=color=gray,version%20in%20(v2)
+```
+
+watch 约定：
+
+- 返回类型为 `text/event-stream`
+- 建连后会先推送一条 `snapshot` 事件，携带当前候选实例全集
+- 后续实例新增或更新时推送 `upsert`
+- 后续实例删除或不再满足当前筛选条件时推送 `delete`
+- 每条事件都会带 `revision`，当前对应底层已提交日志索引
+
 查询约定：
 
 - `namespace`、`service`：必填
@@ -785,6 +796,182 @@ selector=color=gray,,version=v2
 | `GET` | `/readyz` | 节点是否可服务 |
 | `GET` | `/metrics` | 指标暴露 |
 
+### 配置方式
+
+当前推荐通过 `TOML` 配置文件启动 `starmapd`，命令行参数只用于覆盖配置文件里的个别字段。
+
+优先级规则：
+
+1. 命令行参数
+2. `--config` 指定的 `TOML` 配置文件
+3. 剩余字段必须显式提供，否则启动时报错
+
+推荐启动方式：
+
+```bash
+./starmapd --config=./config/starmapd.toml
+```
+
+安装脚本使用的配置模板可参考：
+
+- [starmapd.toml](E:\PersonalCode\GoProject\StarMap\config\starmapd.toml)
+
+注意：
+
+- 上面的 [starmapd.toml](E:\PersonalCode\GoProject\StarMap\config\starmapd.toml) 现在是安装脚本使用的占位符模板
+- 直接手工启动时，请参考下面这份“真实可用”的配置内容填写自己的节点参数
+
+一个最小示例如下：
+
+```toml
+[node]
+id = 1
+cluster_id = 100
+region = "default"
+data_dir = "data/node-1"
+
+[server]
+http_addr = "0.0.0.0:8080"
+admin_addr = "127.0.0.1:18080"
+grpc_addr = "0.0.0.0:19090"
+
+[auth]
+admin_token = "starmap"
+replication_token = "starmap"
+prometheus_sd_token = "starmap"
+
+[cluster]
+peer_ids = "1,2,3"
+peer_grpc_addrs = "1=10.0.0.11:19090,2=10.0.0.12:19090,3=10.0.0.13:19090"
+peer_http_addrs = "1=10.0.0.11:8080,2=10.0.0.12:8080,3=10.0.0.13:8080"
+peer_admin_addrs = "1=127.0.0.1:18080,2=127.0.0.1:18080,3=127.0.0.1:18080"
+
+[runtime]
+request_timeout = "5s"
+shutdown_timeout = "10s"
+
+[registry]
+cleanup_interval = "1s"
+cleanup_delete_limit = 128
+
+[replication]
+targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
+```
+
+说明：
+
+- `admin_token`、`replication_token`、`prometheus_sd_token` 现在都可以直接放在配置文件里
+- 命令行参数仍然可以覆盖配置文件，例如：
+
+```bash
+./starmapd --config=./config/starmapd.toml --http-addr=:28080 --admin-token=new-token
+```
+
+### Prometheus HTTP SD
+
+`StarMap` 现在支持 Prometheus 原生 `HTTP SD`，Prometheus 只需要改配置，不需要改源码。
+
+接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/internal/v1/prometheus/sd` | Prometheus HTTP SD 目标列表 |
+
+鉴权方式：
+
+- 请求头：`Authorization: Bearer <prometheus_sd_token>`
+
+常用查询参数：
+
+- `namespace`：可选，按命名空间过滤
+- `service`：可选，按服务名过滤；设置时要求同时带 `namespace`
+- `zone`：可选，按可用区过滤
+- `selector`：可选，复用现有标签选择器语法
+- `endpoint`：可选，默认 `metrics`
+- `scope`：可选，默认 `local`，支持 `local|merged`
+- `includeSelf`：可选，默认 `false`；为 `true` 时额外返回 StarMap 自身节点的 `/metrics` 目标
+
+返回内容直接符合 Prometheus HTTP SD 格式，不再套统一响应 envelope，例如：
+
+```json
+[
+  {
+    "targets": ["10.0.0.11:9090"],
+    "labels": {
+      "namespace": "prod",
+      "service": "order-service",
+      "instance_id": "order-1",
+      "region": "cn-sh",
+      "zone": "az1",
+      "cluster_id": "100",
+      "target_kind": "service_instance",
+      "__scheme__": "http",
+      "__metrics_path__": "/metrics"
+    }
+  }
+]
+```
+
+建议实例在注册时显式暴露一个 `metrics` 端点，例如：
+
+```json
+{
+  "namespace": "prod",
+  "service": "order-service",
+  "instanceId": "order-1",
+  "endpoints": [
+    {
+      "name": "http",
+      "protocol": "http",
+      "host": "10.0.0.11",
+      "port": 8080
+    },
+    {
+      "name": "metrics",
+      "protocol": "http",
+      "host": "10.0.0.11",
+      "port": 9090,
+      "path": "/metrics"
+    }
+  ]
+}
+```
+
+Prometheus 最小配置示例：
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: starmap-services
+    http_sd_configs:
+      - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials: starmap
+```
+
+如果你也希望 Prometheus 同时采集 StarMap 自身指标，可以直接开启 `includeSelf=true`：
+
+```yaml
+scrape_configs:
+  - job_name: starmap-all
+    http_sd_configs:
+      - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics&includeSelf=true
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials: starmap
+```
+
+Grafana 最小接入方式：
+
+1. 在 Grafana 中添加一个 `Prometheus` 数据源
+2. 数据源地址指向你的 Prometheus，例如 `http://prometheus:9090`
+3. 之后直接在面板里按 `service`、`namespace`、`target_kind` 等标签做查询和分组
+
 ### HTTP 返回模型建议
 
 建议统一响应格式，便于 SDK 和控制台处理：
@@ -833,7 +1020,7 @@ selector=color=gray,,version=v2
 | 检查项 | 预期 | 失败处理 |
 | --- | --- | --- |
 | 最新 snapshot 元数据可读 | 能得到 `term/index/conf_state` | 标记快照损坏，回退到旧快照或进入人工修复模式 |
-| Pebble 可打开 | 状态机目录完整 | 中止启动，避免带损继续运行 |
+| Pebble 可打开 | 注册表数据目录完整 | 中止启动，避免带损继续运行 |
 | WAL 可扫描 | 至少能恢复 `HardState` 和可用 `Entry` | 尝试 repair；失败则拒绝启动 |
 | applied index 合法 | `appliedIndex <= commitIndex` | 拒绝启动并报警 |
 | ConfState 一致 | 快照/WAL/内存成员视图一致 | 进入只恢复不对外服务模式 |
@@ -843,7 +1030,7 @@ selector=color=gray,,version=v2
 
 | 场景 ID | 场景描述 | 初始条件 | 注入动作 | 预期结果 |
 | --- | --- | --- | --- | --- |
-| `REC-001` | WAL 已落盘，状态机未 apply | 单集群正常运行 | proposal 提交后立即 kill -9 | 重启后日志重放成功，无已提交数据丢失 |
+| `REC-001` | WAL 已落盘，注册变更尚未 apply | 单集群正常运行 | 注册请求提交后立即 kill -9 | 重启后日志重放成功，无已提交数据丢失 |
 | `REC-002` | snapshot 文件写入中断 | 触发快照生成 | 快照写到一半断电 | 启动时识别坏快照并回退到上一个有效快照 |
 | `REC-003` | Follower 长时间落后 | 3 节点集群 | 阻断一个 follower 网络后恢复 | 差距小走日志追平，差距大走快照安装 |
 | `REC-004` | 节点被移出 membership 后重启 | 已完成 remove node | 重启被移除节点 | 节点不得以 voter 身份重新加入 |
@@ -856,7 +1043,7 @@ selector=color=gray,,version=v2
 
 | 用例 ID | 用例名称 | 覆盖点 | 前置条件 | 操作步骤 | 预期结果 |
 | --- | --- | --- | --- | --- | --- |
-| `CONS-001` | 线性一致单 key 读写 | `ReadIndex` | 3 节点正常 | 连续写入后立即读取 | 读到最新已提交值 |
+| `CONS-001` | 线性一致实例注册与查询 | `ReadIndex` | 3 节点正常 | 连续注册/续约后立即查询 | 读到最新已提交实例视图 |
 | `CONS-002` | 并发写后读 | 实时顺序 | 3 节点正常 | 多客户端并发写，再并发读 | 无读旧值 |
 | `CONS-003` | Leader 切换期间读一致性 | 主从切换 | 触发一次 leader 变更 | 切换前后持续读写 | 已确认写不丢失，读不回退 |
 
@@ -882,7 +1069,7 @@ selector=color=gray,,version=v2
 | --- | --- | --- | --- | --- |
 | `LOAD-001` | 注册写入压测 | QPS、P99、fsync latency | 高频 `Register` | 延迟稳定，无异常错误率 |
 | `LOAD-002` | 心跳续约压测 | QPS、P99、compaction 频率 | 高频 `Heartbeat` | 无明显写放大失控 |
-| `LOAD-003` | 前缀扫描压测 | scan latency、heap | 大量 `List(prefix)` | 读延迟可控，无明显内存泄漏 |
+| `LOAD-003` | 服务发现查询压测 | scan latency、heap | 大量 `QueryInstances` / `Watch` | 读延迟可控，无明显内存泄漏 |
 
 ### 5. 自动化执行建议
 

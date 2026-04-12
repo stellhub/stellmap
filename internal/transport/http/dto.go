@@ -52,13 +52,29 @@ type RegistryInstanceDTO struct {
 	LastHeartbeatUnix int64             `json:"lastHeartbeatUnix"`
 }
 
-// KVResponseDTO 表示外部 KV 返回模型。
-type KVResponseDTO struct {
-	Key            string `json:"key"`
-	Value          []byte `json:"value"`
-	ModRevision    int64  `json:"modRevision"`
-	CreateRevision int64  `json:"createRevision"`
-	Version        int64  `json:"version"`
+// RegistryWatchEventDTO 表示注册中心 watch 事件。
+type RegistryWatchEventDTO struct {
+	Revision   uint64                `json:"revision"`
+	Type       string                `json:"type"`
+	Namespace  string                `json:"namespace,omitempty"`
+	Service    string                `json:"service,omitempty"`
+	InstanceID string                `json:"instanceId,omitempty"`
+	Instance   *RegistryInstanceDTO  `json:"instance,omitempty"`
+	Instances  []RegistryInstanceDTO `json:"instances,omitempty"`
+}
+
+// ReplicationWatchEventDTO 表示内部目录同步 watch 事件。
+type ReplicationWatchEventDTO struct {
+	Revision        uint64                `json:"revision"`
+	Type            string                `json:"type"`
+	Namespace       string                `json:"namespace,omitempty"`
+	Service         string                `json:"service,omitempty"`
+	InstanceID      string                `json:"instanceId,omitempty"`
+	SourceRegion    string                `json:"sourceRegion"`
+	SourceClusterID string                `json:"sourceClusterId"`
+	ExportedAtUnix  int64                 `json:"exportedAtUnix,omitempty"`
+	Instance        *RegistryInstanceDTO  `json:"instance,omitempty"`
+	Instances       []RegistryInstanceDTO `json:"instances,omitempty"`
 }
 
 // HealthResponseDTO 表示健康检查返回。
@@ -102,4 +118,24 @@ type ClusterStatusDTO struct {
 	HTTPAddrs      map[uint64]string `json:"httpAddrs,omitempty"`
 	GRPCAddrs      map[uint64]string `json:"grpcAddrs,omitempty"`
 	AdminAddrs     map[uint64]string `json:"adminAddrs,omitempty"`
+}
+
+// ReplicationStatusDTO 表示单个复制任务状态。
+type ReplicationStatusDTO struct {
+	SourceRegion         string `json:"sourceRegion"`
+	SourceClusterID      string `json:"sourceClusterId"`
+	Namespace            string `json:"namespace"`
+	Service              string `json:"service"`
+	Connected            bool   `json:"connected"`
+	LastAppliedRevision  uint64 `json:"lastAppliedRevision"`
+	LastSnapshotRevision uint64 `json:"lastSnapshotRevision"`
+	LastSyncUnix         int64  `json:"lastSyncUnix"`
+	ErrorCount           uint64 `json:"errorCount"`
+	LastError            string `json:"lastError,omitempty"`
+}
+
+// PrometheusSDTargetGroupDTO 表示 Prometheus HTTP SD 的一个 target group。
+type PrometheusSDTargetGroupDTO struct {
+	Targets []string          `json:"targets"`
+	Labels  map[string]string `json:"labels,omitempty"`
 }

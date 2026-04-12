@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,11 +79,24 @@ func TestStarmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
 	leaderID := waitForClusterLeader(t, apps, 10*time.Second)
 	leaderBaseURL := "http://" + httpAddrs[leaderID]
 
-	if err := putKV(leaderBaseURL, "cluster-key-1", []byte("value-1")); err != nil {
-		t.Fatalf("put first key via leader %d: %v", leaderID, err)
+	if err := postJSON(leaderBaseURL+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "checkout-service",
+		InstanceID: "checkout-1",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8080,
+		}},
+	}, ""); err != nil {
+		t.Fatalf("register first instance via leader %d: %v", leaderID, err)
 	}
 	for nodeID, addr := range httpAddrs {
-		waitForKVValue(t, "http://"+addr, "cluster-key-1", "value-1", 10*time.Second, fmt.Sprintf("node-%d first key", nodeID))
+		waitForRegistryInstanceIDs(t, "http://"+addr, url.Values{
+			"namespace": []string{"prod"},
+			"service":   []string{"checkout-service"},
+		}, 10*time.Second, fmt.Sprintf("node-%d first registry instance", nodeID), "checkout-1")
 	}
 
 	restartNodeID := pickFollower(apps, leaderID)
@@ -91,14 +106,27 @@ func TestStarmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
 	}
 	delete(apps, restartNodeID)
 
-	if err := putKV(leaderBaseURL, "cluster-key-2", []byte("value-2")); err != nil {
-		t.Fatalf("put second key while follower down: %v", err)
+	if err := postJSON(leaderBaseURL+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "checkout-service",
+		InstanceID: "checkout-2",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8081,
+		}},
+	}, ""); err != nil {
+		t.Fatalf("register second instance while follower down: %v", err)
 	}
 	for nodeID, addr := range httpAddrs {
 		if nodeID == restartNodeID {
 			continue
 		}
-		waitForKVValue(t, "http://"+addr, "cluster-key-2", "value-2", 10*time.Second, fmt.Sprintf("node-%d second key before restart", nodeID))
+		waitForRegistryInstanceIDs(t, "http://"+addr, url.Values{
+			"namespace": []string{"prod"},
+			"service":   []string{"checkout-service"},
+		}, 10*time.Second, fmt.Sprintf("node-%d second registry instance before restart", nodeID), "checkout-1", "checkout-2")
 	}
 
 	restarted := mustNewTestApp(t, restartCfg)
@@ -108,8 +136,10 @@ func TestStarmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
 	apps[restartNodeID] = restarted
 
 	waitForClusterLeader(t, apps, 10*time.Second)
-	waitForKVValue(t, "http://"+httpAddrs[restartNodeID], "cluster-key-1", "value-1", 10*time.Second, fmt.Sprintf("node-%d recover first key", restartNodeID))
-	waitForKVValue(t, "http://"+httpAddrs[restartNodeID], "cluster-key-2", "value-2", 10*time.Second, fmt.Sprintf("node-%d recover second key", restartNodeID))
+	waitForRegistryInstanceIDs(t, "http://"+httpAddrs[restartNodeID], url.Values{
+		"namespace": []string{"prod"},
+		"service":   []string{"checkout-service"},
+	}, 10*time.Second, fmt.Sprintf("node-%d recover registry instances", restartNodeID), "checkout-1", "checkout-2")
 }
 
 func TestStarmapdPersistDynamicMemberAddressesAcrossRestart(t *testing.T) {
@@ -484,6 +514,497 @@ func TestRegistrySelectorSyntaxAndExpiredCleanup(t *testing.T) {
 	})
 }
 
+func TestRegistryWatchSSEPublishesSnapshotUpsertAndDelete(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpAddr := reserveTCPAddress(t)
+	adminAddr := reserveTCPAddress(t)
+	grpcAddr := reserveTCPAddress(t)
+
+	app := mustNewTestApp(t, daemonConfig{
+		NodeID:     1,
+		ClusterID:  307,
+		DataDir:    filepath.Join(t.TempDir(), "node-1"),
+		HTTPAddr:   httpAddr,
+		AdminAddr:  adminAddr,
+		AdminToken: testAdminToken,
+		GRPCAddr:   grpcAddr,
+	})
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start single node app: %v", err)
+	}
+	defer func() {
+		if err := app.Stop(context.Background()); err != nil {
+			t.Fatalf("stop app: %v", err)
+		}
+	}()
+
+	waitForClusterLeader(t, map[uint64]*serverApp{1: app}, 5*time.Second)
+
+	request, err := http.NewRequest(http.MethodGet, "http://"+httpAddr+"/api/v1/registry/watch?namespace=prod&service=order-service", nil)
+	if err != nil {
+		t.Fatalf("new watch request failed: %v", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("open watch stream failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("expected watch status 200, got %d body=%s", response.StatusCode, string(body))
+	}
+
+	reader := bufio.NewReader(response.Body)
+	snapshotEvent := mustReadSSEEvent(t, reader, 5*time.Second)
+	if snapshotEvent.Event != "snapshot" {
+		t.Fatalf("expected first event snapshot, got %s", snapshotEvent.Event)
+	}
+
+	var snapshotPayload httptransport.RegistryWatchEventDTO
+	if err := json.Unmarshal([]byte(snapshotEvent.Data), &snapshotPayload); err != nil {
+		t.Fatalf("unmarshal snapshot payload failed: %v", err)
+	}
+	if snapshotPayload.Type != "snapshot" || len(snapshotPayload.Instances) != 0 {
+		t.Fatalf("unexpected snapshot payload: %+v", snapshotPayload)
+	}
+
+	registerRequest := httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-1",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8080,
+		}},
+	}
+	if err := postJSON("http://"+httpAddr+"/api/v1/registry/register", registerRequest, ""); err != nil {
+		t.Fatalf("register instance failed: %v", err)
+	}
+
+	upsertEvent := mustReadSSEEvent(t, reader, 5*time.Second)
+	if upsertEvent.Event != "upsert" {
+		t.Fatalf("expected upsert event, got %s", upsertEvent.Event)
+	}
+	var upsertPayload httptransport.RegistryWatchEventDTO
+	if err := json.Unmarshal([]byte(upsertEvent.Data), &upsertPayload); err != nil {
+		t.Fatalf("unmarshal upsert payload failed: %v", err)
+	}
+	if upsertPayload.Type != "upsert" || upsertPayload.Instance == nil || upsertPayload.Instance.InstanceID != "order-1" {
+		t.Fatalf("unexpected upsert payload: %+v", upsertPayload)
+	}
+
+	if err := postJSON("http://"+httpAddr+"/api/v1/registry/deregister", httptransport.DeregisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-1",
+	}, ""); err != nil {
+		t.Fatalf("deregister instance failed: %v", err)
+	}
+
+	deleteEvent := mustReadSSEEvent(t, reader, 5*time.Second)
+	if deleteEvent.Event != "delete" {
+		t.Fatalf("expected delete event, got %s", deleteEvent.Event)
+	}
+	var deletePayload httptransport.RegistryWatchEventDTO
+	if err := json.Unmarshal([]byte(deleteEvent.Data), &deletePayload); err != nil {
+		t.Fatalf("unmarshal delete payload failed: %v", err)
+	}
+	if deletePayload.Type != "delete" || deletePayload.InstanceID != "order-1" {
+		t.Fatalf("unexpected delete payload: %+v", deletePayload)
+	}
+}
+
+func TestCrossRegionReplicationSyncsDirectoryWithoutLeakingToPublicWatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	replicationToken := "test-replication-token"
+
+	sourceHTTPAddr := reserveTCPAddress(t)
+	sourceAdminAddr := reserveTCPAddress(t)
+	sourceGRPCAddr := reserveTCPAddress(t)
+	sourceApp := mustNewTestApp(t, daemonConfig{
+		NodeID:           1,
+		ClusterID:        401,
+		Region:           "cn-sh",
+		DataDir:          filepath.Join(t.TempDir(), "source-node-1"),
+		HTTPAddr:         sourceHTTPAddr,
+		AdminAddr:        sourceAdminAddr,
+		AdminToken:       testAdminToken,
+		ReplicationToken: replicationToken,
+		GRPCAddr:         sourceGRPCAddr,
+	})
+	if err := sourceApp.Start(ctx); err != nil {
+		t.Fatalf("start source app: %v", err)
+	}
+	defer func() {
+		if err := sourceApp.Stop(context.Background()); err != nil {
+			t.Fatalf("stop source app: %v", err)
+		}
+	}()
+
+	targetHTTPAddr := reserveTCPAddress(t)
+	targetAdminAddr := reserveTCPAddress(t)
+	targetGRPCAddr := reserveTCPAddress(t)
+	targetsFile := filepath.Join(t.TempDir(), "replication-targets.json")
+	targetsJSON := fmt.Sprintf(`[{"sourceRegion":"cn-sh","sourceClusterId":"401","baseURL":"http://%s","services":[{"namespace":"prod","service":"order-service"}]}]`, sourceHTTPAddr)
+	if err := os.WriteFile(targetsFile, []byte(targetsJSON), 0o644); err != nil {
+		t.Fatalf("write replication targets file failed: %v", err)
+	}
+	targetApp := mustNewTestApp(t, daemonConfig{
+		NodeID:                 1,
+		ClusterID:              402,
+		Region:                 "cn-bj",
+		DataDir:                filepath.Join(t.TempDir(), "target-node-1"),
+		HTTPAddr:               targetHTTPAddr,
+		AdminAddr:              targetAdminAddr,
+		AdminToken:             testAdminToken,
+		ReplicationToken:       replicationToken,
+		ReplicationTargetsFile: targetsFile,
+		GRPCAddr:               targetGRPCAddr,
+	})
+	if err := targetApp.Start(ctx); err != nil {
+		t.Fatalf("start target app: %v", err)
+	}
+	defer func() {
+		if err := targetApp.Stop(context.Background()); err != nil {
+			t.Fatalf("stop target app: %v", err)
+		}
+	}()
+
+	waitForClusterLeader(t, map[uint64]*serverApp{1: sourceApp}, 5*time.Second)
+	waitForClusterLeader(t, map[uint64]*serverApp{1: targetApp}, 5*time.Second)
+
+	request, err := http.NewRequest(http.MethodGet, "http://"+targetHTTPAddr+"/api/v1/registry/watch?namespace=prod&service=order-service", nil)
+	if err != nil {
+		t.Fatalf("new target public watch request failed: %v", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("open target public watch failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("expected target public watch status 200, got %d body=%s", response.StatusCode, string(body))
+	}
+
+	reader := bufio.NewReader(response.Body)
+	snapshotEvent := mustReadSSEEvent(t, reader, 5*time.Second)
+	if snapshotEvent.Event != "snapshot" {
+		t.Fatalf("expected target public watch snapshot, got %s", snapshotEvent.Event)
+	}
+
+	if err := postJSON("http://"+sourceHTTPAddr+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-source-1",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "10.0.1.23",
+			Port:     8080,
+		}},
+	}, ""); err != nil {
+		t.Fatalf("register source instance failed: %v", err)
+	}
+
+	waitForRegistryInstances(t, "http://"+targetHTTPAddr, url.Values{
+		"namespace": []string{"prod"},
+		"service":   []string{"order-service"},
+	}, 8*time.Second, func(items []httptransport.RegistryInstanceDTO) bool {
+		return len(items) == 1 && items[0].InstanceID == "order-source-1"
+	})
+
+	replicatedKey := registry.ReplicatedKey("cn-sh", "401", "prod", "order-service", "order-source-1")
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		readCtx, readCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		data, err := targetApp.Node().Get(readCtx, replicatedKey)
+		readCancel()
+		if err == nil && len(data) > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if data, err := targetApp.Node().Get(context.Background(), replicatedKey); err != nil || len(data) == 0 {
+		t.Fatalf("expected replicated value on target, err=%v len=%d", err, len(data))
+	}
+
+	statuses := waitForReplicationStatus(t, "http://"+targetAdminAddr, testAdminToken, 8*time.Second, func(items []httptransport.ReplicationStatusDTO) bool {
+		return len(items) == 1 &&
+			items[0].SourceRegion == "cn-sh" &&
+			items[0].SourceClusterID == "401" &&
+			items[0].Namespace == "prod" &&
+			items[0].Service == "order-service" &&
+			items[0].Connected &&
+			items[0].LastAppliedRevision > 0
+	})
+	if statuses[0].LastAppliedRevision == 0 {
+		t.Fatalf("expected replication status revision > 0, got %+v", statuses[0])
+	}
+
+	metricsBody := waitForMetricsBody(t, "http://"+targetHTTPAddr+"/metrics", 5*time.Second, func(body string) bool {
+		return strings.Contains(body, "starmap_replication_connected{") &&
+			strings.Contains(body, `namespace="prod"`) &&
+			strings.Contains(body, `service="order-service"`) &&
+			strings.Contains(body, `source_cluster="401"`) &&
+			strings.Contains(body, `source_region="cn-sh"`) &&
+			strings.Contains(body, " 1")
+	})
+	if !strings.Contains(metricsBody, "starmap_replication_last_applied_revision") {
+		t.Fatalf("expected replication metrics to contain revision gauge, body=%s", metricsBody)
+	}
+
+	assertNoSSEEvent(t, reader, 1500*time.Millisecond)
+}
+
+func TestReplicationWatchSupportsSinceRevision(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpAddr := reserveTCPAddress(t)
+	adminAddr := reserveTCPAddress(t)
+	grpcAddr := reserveTCPAddress(t)
+
+	app := mustNewTestApp(t, daemonConfig{
+		NodeID:           1,
+		ClusterID:        403,
+		Region:           "cn-sh",
+		DataDir:          filepath.Join(t.TempDir(), "node-1"),
+		HTTPAddr:         httpAddr,
+		AdminAddr:        adminAddr,
+		AdminToken:       testAdminToken,
+		ReplicationToken: "test-replication-token",
+		GRPCAddr:         grpcAddr,
+	})
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start single node app: %v", err)
+	}
+	defer func() {
+		if err := app.Stop(context.Background()); err != nil {
+			t.Fatalf("stop app: %v", err)
+		}
+	}()
+
+	waitForClusterLeader(t, map[uint64]*serverApp{1: app}, 5*time.Second)
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+httpAddr+"/internal/v1/replication/watch?namespace=prod&service=order-service", nil)
+	if err != nil {
+		t.Fatalf("new replication watch request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer test-replication-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open replication watch failed: %v", err)
+	}
+	reader := bufio.NewReader(resp.Body)
+	defer resp.Body.Close()
+
+	_ = mustReadSSEEvent(t, reader, 5*time.Second) // snapshot
+
+	if err := postJSON("http://"+httpAddr+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-1",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8080,
+		}},
+	}, ""); err != nil {
+		t.Fatalf("register first instance failed: %v", err)
+	}
+
+	firstEvent := mustReadSSEEvent(t, reader, 5*time.Second)
+	firstRevision := firstEvent.ID
+	resp.Body.Close()
+
+	if err := postJSON("http://"+httpAddr+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-2",
+		Endpoints: []httptransport.EndpointDTO{{
+			Name:     "http",
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8081,
+		}},
+	}, ""); err != nil {
+		t.Fatalf("register second instance failed: %v", err)
+	}
+
+	sinceReq, err := http.NewRequest(http.MethodGet, "http://"+httpAddr+"/internal/v1/replication/watch?namespace=prod&service=order-service&sinceRevision="+url.QueryEscape(firstRevision), nil)
+	if err != nil {
+		t.Fatalf("new since replication watch request failed: %v", err)
+	}
+	sinceReq.Header.Set("Authorization", "Bearer test-replication-token")
+	sinceResp, err := http.DefaultClient.Do(sinceReq)
+	if err != nil {
+		t.Fatalf("open replication watch with since failed: %v", err)
+	}
+	defer sinceResp.Body.Close()
+	if sinceResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(sinceResp.Body)
+		t.Fatalf("expected replication watch with since status 200, got %d body=%s", sinceResp.StatusCode, string(body))
+	}
+
+	sinceReader := bufio.NewReader(sinceResp.Body)
+	replayedEvent := mustReadSSEEvent(t, sinceReader, 5*time.Second)
+	if replayedEvent.Event != "upsert" {
+		t.Fatalf("expected replayed upsert event, got %s", replayedEvent.Event)
+	}
+	if replayedEvent.ID == firstRevision {
+		t.Fatalf("expected replayed event id to advance beyond first revision")
+	}
+
+	var replayedPayload httptransport.ReplicationWatchEventDTO
+	if err := json.Unmarshal([]byte(replayedEvent.Data), &replayedPayload); err != nil {
+		t.Fatalf("unmarshal replayed payload failed: %v", err)
+	}
+	if replayedPayload.Instance == nil || replayedPayload.Instance.InstanceID != "order-2" {
+		t.Fatalf("unexpected replayed payload: %+v", replayedPayload)
+	}
+}
+
+func TestPrometheusSDReturnsServiceTargetsAndOptionalSelfTargets(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpAddr := reserveTCPAddress(t)
+	adminAddr := reserveTCPAddress(t)
+	grpcAddr := reserveTCPAddress(t)
+
+	app := mustNewTestApp(t, daemonConfig{
+		NodeID:            1,
+		ClusterID:         402,
+		DataDir:           filepath.Join(t.TempDir(), "node-1"),
+		HTTPAddr:          httpAddr,
+		AdminAddr:         adminAddr,
+		AdminToken:        testAdminToken,
+		ReplicationToken:  "test-replication-token",
+		PrometheusSDToken: "test-prometheus-sd-token",
+		GRPCAddr:          grpcAddr,
+	})
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start single node app: %v", err)
+	}
+	defer func() {
+		if err := app.Stop(context.Background()); err != nil {
+			t.Fatalf("stop app: %v", err)
+		}
+	}()
+
+	waitForClusterLeader(t, map[uint64]*serverApp{1: app}, 5*time.Second)
+
+	if err := postJSON("http://"+httpAddr+"/api/v1/registry/register", httptransport.RegisterRequestDTO{
+		Namespace:  "prod",
+		Service:    "order-service",
+		InstanceID: "order-1",
+		Zone:       "az1",
+		Labels: map[string]string{
+			"color": "gray",
+		},
+		Endpoints: []httptransport.EndpointDTO{
+			{
+				Name:     "http",
+				Protocol: "http",
+				Host:     "127.0.0.1",
+				Port:     8080,
+			},
+			{
+				Name:     "metrics",
+				Protocol: "http",
+				Host:     "127.0.0.1",
+				Port:     9090,
+				Path:     "/metrics",
+			},
+		},
+	}, ""); err != nil {
+		t.Fatalf("register instance failed: %v", err)
+	}
+
+	targets := waitForPrometheusSDTargets(t, "http://"+httpAddr+"/internal/v1/prometheus/sd?namespace=prod&service=order-service", "test-prometheus-sd-token", 5*time.Second, func(items []httptransport.PrometheusSDTargetGroupDTO) bool {
+		return len(items) == 1
+	})
+	if len(targets[0].Targets) != 1 || targets[0].Targets[0] != "127.0.0.1:9090" {
+		t.Fatalf("unexpected prometheus sd targets: %+v", targets[0].Targets)
+	}
+	if targets[0].Labels["namespace"] != "prod" || targets[0].Labels["service"] != "order-service" {
+		t.Fatalf("unexpected prometheus sd labels: %+v", targets[0].Labels)
+	}
+	if targets[0].Labels["target_kind"] != "service_instance" {
+		t.Fatalf("unexpected target kind: %+v", targets[0].Labels)
+	}
+	if targets[0].Labels["starmap_label_color"] != "gray" {
+		t.Fatalf("expected transformed service label, got %+v", targets[0].Labels)
+	}
+
+	withSelf := waitForPrometheusSDTargets(t, "http://"+httpAddr+"/internal/v1/prometheus/sd?namespace=prod&service=order-service&includeSelf=true", "test-prometheus-sd-token", 5*time.Second, func(items []httptransport.PrometheusSDTargetGroupDTO) bool {
+		return len(items) == 2
+	})
+	foundSelf := false
+	foundService := false
+	for _, item := range withSelf {
+		if item.Labels["target_kind"] == "starmapd" {
+			foundSelf = true
+			if len(item.Targets) != 1 || item.Targets[0] != httpAddr {
+				t.Fatalf("unexpected starmapd self target: %+v", item)
+			}
+		}
+		if item.Labels["target_kind"] == "service_instance" {
+			foundService = true
+		}
+	}
+	if !foundSelf || !foundService {
+		t.Fatalf("expected both self and service targets, got %+v", withSelf)
+	}
+}
+
+func TestPrometheusSDRequiresToken(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpAddr := reserveTCPAddress(t)
+	adminAddr := reserveTCPAddress(t)
+	grpcAddr := reserveTCPAddress(t)
+
+	app := mustNewTestApp(t, daemonConfig{
+		NodeID:            1,
+		ClusterID:         403,
+		DataDir:           filepath.Join(t.TempDir(), "node-1"),
+		HTTPAddr:          httpAddr,
+		AdminAddr:         adminAddr,
+		AdminToken:        testAdminToken,
+		PrometheusSDToken: "test-prometheus-sd-token",
+		GRPCAddr:          grpcAddr,
+	})
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start single node app: %v", err)
+	}
+	defer func() {
+		if err := app.Stop(context.Background()); err != nil {
+			t.Fatalf("stop app: %v", err)
+		}
+	}()
+
+	waitForClusterLeader(t, map[uint64]*serverApp{1: app}, 5*time.Second)
+
+	statusCode, body, err := rawGet("http://"+httpAddr+"/internal/v1/prometheus/sd", "")
+	if err != nil {
+		t.Fatalf("call prometheus sd without token failed: %v", err)
+	}
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusUnauthorized, statusCode, body)
+	}
+}
+
 func TestCleanupExpiredRegistryRespectsDeleteLimitAndAdvancesScanCursor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -563,6 +1084,43 @@ func TestCleanupExpiredRegistryRespectsDeleteLimitAndAdvancesScanCursor(t *testi
 
 func mustNewTestApp(t *testing.T, cfg daemonConfig) *serverApp {
 	t.Helper()
+
+	if cfg.Region == "" {
+		cfg.Region = "default"
+	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = filepath.Join(t.TempDir(), "node-data")
+	}
+	if cfg.HTTPAddr == "" {
+		cfg.HTTPAddr = reserveTCPAddress(t)
+	}
+	if cfg.AdminAddr == "" {
+		cfg.AdminAddr = reserveTCPAddress(t)
+	}
+	if cfg.GRPCAddr == "" {
+		cfg.GRPCAddr = reserveTCPAddress(t)
+	}
+	if cfg.AdminToken == "" {
+		cfg.AdminToken = testAdminToken
+	}
+	if cfg.ReplicationToken == "" {
+		cfg.ReplicationToken = cfg.AdminToken
+	}
+	if cfg.PrometheusSDToken == "" {
+		cfg.PrometheusSDToken = cfg.ReplicationToken
+	}
+	if cfg.RequestTimeout == 0 {
+		cfg.RequestTimeout = 5 * time.Second
+	}
+	if cfg.ShutdownTimeout == 0 {
+		cfg.ShutdownTimeout = 10 * time.Second
+	}
+	if cfg.RegistryCleanupInterval == 0 {
+		cfg.RegistryCleanupInterval = time.Second
+	}
+	if cfg.RegistryCleanupDeleteLimit == 0 {
+		cfg.RegistryCleanupDeleteLimit = 128
+	}
 
 	app, err := newServerApp(cfg)
 	if err != nil {
@@ -678,7 +1236,7 @@ func stopApps(t *testing.T, apps map[uint64]*serverApp) {
 		if app == nil {
 			continue
 		}
-		stopCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := app.Stop(stopCtx); err != nil {
 			cancel()
 			t.Fatalf("stop node %d failed: %v", nodeID, err)
@@ -726,41 +1284,6 @@ func waitForClusterLeader(t *testing.T, apps map[uint64]*serverApp, timeout time
 	return 0
 }
 
-func putKV(baseURL, key string, value []byte) error {
-	request, err := http.NewRequest(http.MethodPut, strings.TrimRight(baseURL, "/")+"/api/v1/kv/"+key, bytes.NewReader(value))
-	if err != nil {
-		return err
-	}
-
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("status=%d body=%s", response.StatusCode, string(body))
-	}
-
-	return nil
-}
-
-func waitForKVValue(t *testing.T, baseURL, key, expected string, timeout time.Duration, scene string) {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		value, statusCode, err := getKV(baseURL, key)
-		if err == nil && statusCode == http.StatusOK && value == expected {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	t.Fatalf("%s did not observe key=%s value=%s within %s", scene, key, expected, timeout)
-}
-
 func waitForMemberAddress(t *testing.T, baseURL, token string, nodeID uint64, httpAddr, grpcAddr, adminAddr string, timeout time.Duration) {
 	t.Helper()
 
@@ -776,33 +1299,6 @@ func waitForMemberAddress(t *testing.T, baseURL, token string, nodeID uint64, ht
 	}
 
 	t.Fatalf("member address nodeId=%d http=%s grpc=%s admin=%s not observed within %s", nodeID, httpAddr, grpcAddr, adminAddr, timeout)
-}
-
-func getKV(baseURL, key string) (string, int, error) {
-	response, err := http.Get(strings.TrimRight(baseURL, "/") + "/api/v1/kv/" + key)
-	if err != nil {
-		return "", 0, err
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return "", response.StatusCode, err
-	}
-	if response.StatusCode != http.StatusOK {
-		return "", response.StatusCode, fmt.Errorf("status=%d body=%s", response.StatusCode, string(body))
-	}
-
-	var envelope testSuccessEnvelope
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return "", response.StatusCode, err
-	}
-	var kv httptransport.KVResponseDTO
-	if err := json.Unmarshal(envelope.Data, &kv); err != nil {
-		return "", response.StatusCode, err
-	}
-
-	return string(kv.Value), response.StatusCode, nil
 }
 
 func getClusterStatus(baseURL, token string) (httptransport.ClusterStatusDTO, error) {
@@ -840,6 +1336,41 @@ func getClusterStatus(baseURL, token string) (httptransport.ClusterStatusDTO, er
 	return status, nil
 }
 
+func getReplicationStatus(baseURL, token string) ([]httptransport.ReplicationStatusDTO, error) {
+	request, err := http.NewRequest(http.MethodGet, strings.TrimRight(baseURL, "/")+"/admin/v1/replication/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status=%d body=%s", response.StatusCode, string(body))
+	}
+
+	var envelope testSuccessEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+	var items []httptransport.ReplicationStatusDTO
+	if err := json.Unmarshal(envelope.Data, &items); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 func getRegistryInstances(baseURL string, values url.Values) ([]httptransport.RegistryInstanceDTO, error) {
 	target := strings.TrimRight(baseURL, "/") + "/api/v1/registry/instances"
 	if encoded := values.Encode(); encoded != "" {
@@ -872,6 +1403,101 @@ func getRegistryInstances(baseURL string, values url.Values) ([]httptransport.Re
 	return instances, nil
 }
 
+func getPrometheusSDTargets(target, token string) ([]httptransport.PrometheusSDTargetGroupDTO, error) {
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status=%d body=%s", response.StatusCode, string(body))
+	}
+
+	var items []httptransport.PrometheusSDTargetGroupDTO
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func waitForReplicationStatus(t *testing.T, baseURL, token string, timeout time.Duration, predicate func([]httptransport.ReplicationStatusDTO) bool) []httptransport.ReplicationStatusDTO {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last []httptransport.ReplicationStatusDTO
+	var lastErr error
+	for time.Now().Before(deadline) {
+		last, lastErr = getReplicationStatus(baseURL, token)
+		if lastErr == nil && predicate(last) {
+			return last
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("get replication status failed within %s: %v", timeout, lastErr)
+	}
+	t.Fatalf("replication status did not match predicate within %s, last=%+v", timeout, last)
+	return nil
+}
+
+func waitForMetricsBody(t *testing.T, target string, timeout time.Duration, predicate func(string) bool) string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last string
+	var lastErr error
+	for time.Now().Before(deadline) {
+		statusCode, body, err := rawGet(target, "")
+		last = body
+		lastErr = err
+		if err == nil && statusCode == http.StatusOK && predicate(body) {
+			return body
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("get metrics failed within %s: %v", timeout, lastErr)
+	}
+	t.Fatalf("metrics body did not match predicate within %s, last=%s", timeout, last)
+	return ""
+}
+
+func waitForPrometheusSDTargets(t *testing.T, target, token string, timeout time.Duration, predicate func([]httptransport.PrometheusSDTargetGroupDTO) bool) []httptransport.PrometheusSDTargetGroupDTO {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last []httptransport.PrometheusSDTargetGroupDTO
+	var lastErr error
+	for time.Now().Before(deadline) {
+		last, lastErr = getPrometheusSDTargets(target, token)
+		if lastErr == nil && predicate(last) {
+			return last
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("get prometheus sd targets failed within %s: %v", timeout, lastErr)
+	}
+	t.Fatalf("prometheus sd targets did not match predicate within %s, last=%+v", timeout, last)
+	return nil
+}
+
 func waitForRegistryInstances(t *testing.T, baseURL string, params url.Values, timeout time.Duration, predicate func([]httptransport.RegistryInstanceDTO) bool) []httptransport.RegistryInstanceDTO {
 	t.Helper()
 
@@ -891,6 +1517,29 @@ func waitForRegistryInstances(t *testing.T, baseURL string, params url.Values, t
 	}
 	t.Fatalf("query registry instances did not match predicate within %s, last=%+v", timeout, last)
 	return nil
+}
+
+func waitForRegistryInstanceIDs(t *testing.T, baseURL string, params url.Values, timeout time.Duration, scene string, expectedIDs ...string) {
+	t.Helper()
+	_ = scene
+
+	waitForRegistryInstances(t, baseURL, params, timeout, func(items []httptransport.RegistryInstanceDTO) bool {
+		if len(items) != len(expectedIDs) {
+			return false
+		}
+
+		seen := make(map[string]struct{}, len(items))
+		for _, item := range items {
+			seen[item.InstanceID] = struct{}{}
+		}
+		for _, id := range expectedIDs {
+			if _, ok := seen[id]; !ok {
+				return false
+			}
+		}
+
+		return true
+	})
 }
 
 func postJSON(target string, body interface{}, token string) error {
@@ -943,6 +1592,86 @@ func rawGet(target, token string) (int, string, error) {
 	}
 
 	return response.StatusCode, string(body), nil
+}
+
+type sseEvent struct {
+	ID    string
+	Event string
+	Data  string
+}
+
+func mustReadSSEEvent(t *testing.T, reader *bufio.Reader, timeout time.Duration) sseEvent {
+	t.Helper()
+
+	type result struct {
+		event sseEvent
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		event, err := readSSEEvent(reader)
+		done <- result{event: event, err: err}
+	}()
+
+	select {
+	case <-time.After(timeout):
+		t.Fatalf("did not receive sse event within %s", timeout)
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("read sse event failed: %v", result.err)
+		}
+		return result.event
+	}
+
+	return sseEvent{}
+}
+
+func assertNoSSEEvent(t *testing.T, reader *bufio.Reader, timeout time.Duration) {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := readSSEEvent(reader)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("unexpectedly received sse event within %s", timeout)
+		}
+	case <-time.After(timeout):
+	}
+}
+
+func readSSEEvent(reader *bufio.Reader) (sseEvent, error) {
+	var event sseEvent
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return sseEvent{}, err
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if event.Event != "" || event.Data != "" || event.ID != "" {
+				return event, nil
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "id: "):
+			event.ID = strings.TrimSpace(strings.TrimPrefix(line, "id: "))
+		case strings.HasPrefix(line, "event: "):
+			event.Event = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+		case strings.HasPrefix(line, "data: "):
+			event.Data = strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		}
+	}
 }
 
 func waitForAdminStatusCode(t *testing.T, target, token string, expectedStatus int, timeout time.Duration) {

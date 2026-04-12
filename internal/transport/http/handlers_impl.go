@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/chenwenlong-java/StarMap/internal/raftnode"
 	"github.com/chenwenlong-java/StarMap/internal/registry"
+	"github.com/chenwenlong-java/StarMap/internal/replication"
 	"github.com/chenwenlong-java/StarMap/internal/runtime"
 	"github.com/chenwenlong-java/StarMap/internal/storage"
 )
@@ -22,54 +24,70 @@ type RegistryAPI struct {
 	node          *raftnode.RaftNode
 	httpAddr      string
 	book          *runtime.AddressBook
+	watchHub      *registry.WatchHub
+	sourceRegion  string
+	sourceCluster string
+	replicateAuth string
+	promSDAuth    string
 	requestTimout time.Duration
 }
 
 // HealthAPI 实现对外健康检查。
 type HealthAPI struct {
-	node     *raftnode.RaftNode
-	httpAddr string
-	book     *runtime.AddressBook
+	node               *raftnode.RaftNode
+	httpAddr           string
+	book               *runtime.AddressBook
+	replicationTracker *replication.Tracker
+	metricsHandler     http.Handler
 }
 
 // ControlAPI 实现控制面 HTTP 接口。
 type ControlAPI struct {
-	node          *raftnode.RaftNode
-	clusterID     uint64
-	adminAddr     string
-	book          *runtime.AddressBook
-	peerTransport *runtime.PeerTransport
-	requestTimout time.Duration
+	node               *raftnode.RaftNode
+	clusterID          uint64
+	adminAddr          string
+	book               *runtime.AddressBook
+	peerTransport      *runtime.PeerTransport
+	replicationTracker *replication.Tracker
+	requestTimout      time.Duration
 }
 
 // NewRegistryHandler 创建注册中心 HTTP 数据面 handler。
-func NewRegistryHandler(node *raftnode.RaftNode, httpAddr string, book *runtime.AddressBook, requestTimeout time.Duration) *RegistryAPI {
+func NewRegistryHandler(node *raftnode.RaftNode, httpAddr string, book *runtime.AddressBook, watchHub *registry.WatchHub, sourceRegion, sourceCluster, replicationToken, prometheusSDToken string, requestTimeout time.Duration) *RegistryAPI {
 	return &RegistryAPI{
 		node:          node,
 		httpAddr:      httpAddr,
 		book:          book,
+		watchHub:      watchHub,
+		sourceRegion:  sourceRegion,
+		sourceCluster: sourceCluster,
+		replicateAuth: replicationToken,
+		promSDAuth:    prometheusSDToken,
 		requestTimout: requestTimeout,
 	}
 }
 
 // NewHealthHandler 创建健康检查 handler。
-func NewHealthHandler(node *raftnode.RaftNode, httpAddr string, book *runtime.AddressBook) *HealthAPI {
+func NewHealthHandler(node *raftnode.RaftNode, httpAddr string, book *runtime.AddressBook, replicationTracker *replication.Tracker, metricsHandler http.Handler) *HealthAPI {
 	return &HealthAPI{
-		node:     node,
-		httpAddr: httpAddr,
-		book:     book,
+		node:               node,
+		httpAddr:           httpAddr,
+		book:               book,
+		replicationTracker: replicationTracker,
+		metricsHandler:     metricsHandler,
 	}
 }
 
 // NewControlHandler 创建控制面 handler。
-func NewControlHandler(node *raftnode.RaftNode, clusterID uint64, adminAddr string, book *runtime.AddressBook, peerTransport *runtime.PeerTransport, requestTimeout time.Duration) *ControlAPI {
+func NewControlHandler(node *raftnode.RaftNode, clusterID uint64, adminAddr string, book *runtime.AddressBook, peerTransport *runtime.PeerTransport, replicationTracker *replication.Tracker, requestTimeout time.Duration) *ControlAPI {
 	return &ControlAPI{
-		node:          node,
-		clusterID:     clusterID,
-		adminAddr:     adminAddr,
-		book:          book,
-		peerTransport: peerTransport,
-		requestTimout: requestTimeout,
+		node:               node,
+		clusterID:          clusterID,
+		adminAddr:          adminAddr,
+		book:               book,
+		peerTransport:      peerTransport,
+		replicationTracker: replicationTracker,
+		requestTimout:      requestTimeout,
 	}
 }
 
@@ -113,6 +131,13 @@ func (h *RegistryAPI) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
+	log.Printf(
+		"registry register accepted namespace=%s service=%s instance_id=%s remote=%s",
+		input.Namespace,
+		input.Service,
+		input.InstanceID,
+		r.RemoteAddr,
+	)
 
 	writeJSON(w, http.StatusOK, SuccessResponse{
 		Code:    "ok",
@@ -147,6 +172,13 @@ func (h *RegistryAPI) Deregister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
+	log.Printf(
+		"registry deregister accepted namespace=%s service=%s instance_id=%s remote=%s",
+		request.Namespace,
+		request.Service,
+		request.InstanceID,
+		r.RemoteAddr,
+	)
 
 	writeJSON(w, http.StatusOK, SuccessResponse{
 		Code:    "ok",
@@ -217,6 +249,14 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
+	log.Printf(
+		"registry heartbeat accepted namespace=%s service=%s instance_id=%s lease_ttl_seconds=%d remote=%s",
+		request.Namespace,
+		request.Service,
+		request.InstanceID,
+		existing.LeaseTTLSeconds,
+		r.RemoteAddr,
+	)
 
 	writeJSON(w, http.StatusOK, SuccessResponse{
 		Code:    "ok",
@@ -253,42 +293,235 @@ func (h *RegistryAPI) QueryInstances(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(item.Value, &value); err != nil {
 			continue
 		}
-		if !registry.IsAlive(value, now) {
+		instance, ok := registryInstanceDTOFromValue(value, query, now)
+		if !ok {
 			continue
 		}
-		if query.Zone != "" && value.Zone != query.Zone {
-			continue
-		}
-		if !registry.MatchesLabelSelector(value.Labels, query.Selector) {
-			continue
-		}
-
-		endpoints := registry.FilterEndpoints(value.Endpoints, query.Endpoint)
-		if query.Endpoint != "" && len(endpoints) == 0 {
-			continue
-		}
-		if query.Endpoint == "" {
-			endpoints = registry.CloneEndpoints(value.Endpoints)
-		}
-
-		result = append(result, RegistryInstanceDTO{
-			Namespace:         value.Namespace,
-			Service:           value.Service,
-			InstanceID:        value.InstanceID,
-			Zone:              value.Zone,
-			Labels:            registry.CloneStringMap(value.Labels),
-			Metadata:          registry.CloneStringMap(value.Metadata),
-			Endpoints:         endpointDTOsFromRegistry(endpoints),
-			LeaseTTLSeconds:   registry.EffectiveLeaseTTLSeconds(value.LeaseTTLSeconds),
-			RegisteredAtUnix:  value.RegisteredAtUnix,
-			LastHeartbeatUnix: value.LastHeartbeatUnix,
-		})
+		result = append(result, instance)
 		if query.Limit > 0 && len(result) >= query.Limit {
 			break
 		}
 	}
 
+	if len(result) == 0 {
+		result, err = h.queryReplicatedInstances(ctx, query, now)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "scan_failed", err.Error())
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusOK, SuccessResponse{Code: "ok", Data: result})
+}
+
+// WatchInstances 以 SSE 方式持续推送实例变化事件。
+func (h *RegistryAPI) WatchInstances(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	if h.watchHub == nil {
+		writeError(w, http.StatusServiceUnavailable, "watch_unavailable", "registry watch hub is not configured")
+		return
+	}
+
+	query, err := registry.ParseQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "stream_not_supported", "response writer does not support streaming")
+		return
+	}
+
+	_, events, unsubscribe := h.watchHub.Subscribe(128)
+	defer unsubscribe()
+
+	snapshotItems, snapshotRevision, err := h.registryWatchSnapshot(r.Context(), query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "snapshot_failed", err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	if err := writeSSEEvent(w, flusher, snapshotRevision, "snapshot", RegistryWatchEventDTO{
+		Revision:  snapshotRevision,
+		Type:      "snapshot",
+		Namespace: query.Namespace,
+		Service:   query.Service,
+		Instances: snapshotItems,
+	}); err != nil {
+		return
+	}
+
+	keepaliveTicker := time.NewTicker(30 * time.Second)
+	defer keepaliveTicker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepaliveTicker.C:
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if event.Revision <= snapshotRevision {
+				continue
+			}
+
+			payload, emit := registryWatchEventDTO(query, event)
+			if !emit {
+				continue
+			}
+			if err := writeSSEEvent(w, flusher, event.Revision, payload.Type, payload); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// WatchReplication 以内部同步专用 SSE 通道持续推送原生目录变化。
+func (h *RegistryAPI) WatchReplication(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	if h.watchHub == nil {
+		writeError(w, http.StatusServiceUnavailable, "watch_unavailable", "registry watch hub is not configured")
+		return
+	}
+	if !h.isAuthorizedReplicationRequest(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid replication token")
+		return
+	}
+
+	query, err := registry.ParseQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	sinceRevision, err := parseSinceRevision(r.URL.Query().Get("sinceRevision"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "stream_not_supported", "response writer does not support streaming")
+		return
+	}
+
+	_, events, replay, exact, unsubscribe := h.watchHub.SubscribeSince(128, sinceRevision)
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	currentRevision := sinceRevision
+	if sinceRevision == 0 || !exact {
+		snapshotItems, snapshotRevision, err := h.registryWatchSnapshot(r.Context(), query)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "snapshot_failed", err.Error())
+			return
+		}
+
+		if err := writeSSEEvent(w, flusher, snapshotRevision, "snapshot", ReplicationWatchEventDTO{
+			Revision:        snapshotRevision,
+			Type:            "snapshot",
+			Namespace:       query.Namespace,
+			Service:         query.Service,
+			SourceRegion:    h.sourceRegion,
+			SourceClusterID: h.sourceCluster,
+			ExportedAtUnix:  time.Now().Unix(),
+			Instances:       snapshotItems,
+		}); err != nil {
+			return
+		}
+		currentRevision = snapshotRevision
+	} else {
+		for _, event := range replay {
+			payload, emit := replicationWatchEventDTO(query, h.sourceRegion, h.sourceCluster, event)
+			if !emit {
+				continue
+			}
+			if err := writeSSEEvent(w, flusher, event.Revision, payload.Type, payload); err != nil {
+				return
+			}
+			currentRevision = event.Revision
+		}
+	}
+
+	keepaliveTicker := time.NewTicker(30 * time.Second)
+	defer keepaliveTicker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepaliveTicker.C:
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if event.Revision <= currentRevision {
+				continue
+			}
+
+			payload, emit := replicationWatchEventDTO(query, h.sourceRegion, h.sourceCluster, event)
+			if !emit {
+				continue
+			}
+			if err := writeSSEEvent(w, flusher, event.Revision, payload.Type, payload); err != nil {
+				return
+			}
+			currentRevision = event.Revision
+		}
+	}
+}
+
+// PrometheusSD 以 Prometheus HTTP SD 兼容格式返回当前可抓取的 target 列表。
+func (h *RegistryAPI) PrometheusSD(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	if !h.isAuthorizedPrometheusSDRequest(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid prometheus sd token")
+		return
+	}
+
+	query, err := parsePrometheusSDQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), h.requestTimout)
+	defer cancel()
+
+	items, err := h.prometheusSDTargetGroups(ctx, query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "scan_failed", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, items)
 }
 
 func registryRegisterInputFromDTO(request RegisterRequestDTO) registry.RegisterInput {
@@ -344,146 +577,184 @@ func endpointDTOsFromRegistry(items []registry.Endpoint) []EndpointDTO {
 	return result
 }
 
-// PutKV 处理单 key 写入。
-func (h *RegistryAPI) PutKV(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPut) {
-		return
-	}
-	if !h.ensureWritable(w) {
-		return
+func registryInstanceDTOFromValue(value registry.Value, query registry.Query, now int64) (RegistryInstanceDTO, bool) {
+	if !registry.IsAlive(value, now) || !registry.MatchQuery(value, query) {
+		return RegistryInstanceDTO{}, false
 	}
 
-	key, err := pathKey(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	value, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	if err := h.propose(r.Context(), storage.Command{
-		Operation: storage.OperationPut,
-		Key:       []byte(key),
-		Value:     value,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
-		return
+	endpoints := registry.CloneEndpoints(value.Endpoints)
+	if query.Endpoint != "" {
+		endpoints = registry.FilterEndpoints(value.Endpoints, query.Endpoint)
+		if len(endpoints) == 0 {
+			return RegistryInstanceDTO{}, false
+		}
 	}
 
-	writeJSON(w, http.StatusOK, SuccessResponse{Code: "ok", Message: "kv written"})
+	return RegistryInstanceDTO{
+		Namespace:         value.Namespace,
+		Service:           value.Service,
+		InstanceID:        value.InstanceID,
+		Zone:              value.Zone,
+		Labels:            registry.CloneStringMap(value.Labels),
+		Metadata:          registry.CloneStringMap(value.Metadata),
+		Endpoints:         endpointDTOsFromRegistry(endpoints),
+		LeaseTTLSeconds:   registry.EffectiveLeaseTTLSeconds(value.LeaseTTLSeconds),
+		RegisteredAtUnix:  value.RegisteredAtUnix,
+		LastHeartbeatUnix: value.LastHeartbeatUnix,
+	}, true
 }
 
-// Get 处理单 key 读取。
-func (h *RegistryAPI) Get(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
+func registryWatchEventDTO(query registry.Query, event registry.WatchEvent) (RegistryWatchEventDTO, bool) {
+	if event.Namespace != query.Namespace || event.Service != query.Service {
+		return RegistryWatchEventDTO{}, false
 	}
 
-	key, err := pathKey(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
+	switch event.Type {
+	case registry.WatchEventUpsert:
+		if event.Value != nil {
+			if instance, ok := registryInstanceDTOFromValue(*event.Value, query, time.Now().Unix()); ok {
+				return RegistryWatchEventDTO{
+					Revision:   event.Revision,
+					Type:       string(registry.WatchEventUpsert),
+					Namespace:  event.Namespace,
+					Service:    event.Service,
+					InstanceID: event.InstanceID,
+					Instance:   &instance,
+				}, true
+			}
+		}
+		return RegistryWatchEventDTO{
+			Revision:   event.Revision,
+			Type:       string(registry.WatchEventDelete),
+			Namespace:  event.Namespace,
+			Service:    event.Service,
+			InstanceID: event.InstanceID,
+		}, true
+	case registry.WatchEventDelete:
+		return RegistryWatchEventDTO{
+			Revision:   event.Revision,
+			Type:       string(registry.WatchEventDelete),
+			Namespace:  event.Namespace,
+			Service:    event.Service,
+			InstanceID: event.InstanceID,
+		}, true
+	default:
+		return RegistryWatchEventDTO{}, false
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), h.requestTimout)
+}
+
+func replicationWatchEventDTO(query registry.Query, sourceRegion, sourceCluster string, event registry.WatchEvent) (ReplicationWatchEventDTO, bool) {
+	if event.Namespace != query.Namespace || event.Service != query.Service {
+		return ReplicationWatchEventDTO{}, false
+	}
+
+	exportedAtUnix := time.Now().Unix()
+	switch event.Type {
+	case registry.WatchEventUpsert:
+		if event.Value != nil {
+			if instance, ok := registryInstanceDTOFromValue(*event.Value, query, time.Now().Unix()); ok {
+				return ReplicationWatchEventDTO{
+					Revision:        event.Revision,
+					Type:            string(registry.WatchEventUpsert),
+					Namespace:       event.Namespace,
+					Service:         event.Service,
+					InstanceID:      event.InstanceID,
+					SourceRegion:    sourceRegion,
+					SourceClusterID: sourceCluster,
+					ExportedAtUnix:  exportedAtUnix,
+					Instance:        &instance,
+				}, true
+			}
+		}
+		return ReplicationWatchEventDTO{
+			Revision:        event.Revision,
+			Type:            string(registry.WatchEventDelete),
+			Namespace:       event.Namespace,
+			Service:         event.Service,
+			InstanceID:      event.InstanceID,
+			SourceRegion:    sourceRegion,
+			SourceClusterID: sourceCluster,
+			ExportedAtUnix:  exportedAtUnix,
+		}, true
+	case registry.WatchEventDelete:
+		return ReplicationWatchEventDTO{
+			Revision:        event.Revision,
+			Type:            string(registry.WatchEventDelete),
+			Namespace:       event.Namespace,
+			Service:         event.Service,
+			InstanceID:      event.InstanceID,
+			SourceRegion:    sourceRegion,
+			SourceClusterID: sourceCluster,
+			ExportedAtUnix:  exportedAtUnix,
+		}, true
+	default:
+		return ReplicationWatchEventDTO{}, false
+	}
+}
+
+func (h *RegistryAPI) registryWatchSnapshot(parent context.Context, query registry.Query) ([]RegistryInstanceDTO, uint64, error) {
+	ctx, cancel := context.WithTimeout(parent, h.requestTimout)
 	defer cancel()
 
-	value, err := h.node.Get(ctx, []byte(key))
+	if err := h.node.LinearizableRead(ctx, []byte(fmt.Sprintf("registry-watch-%s-%s-%d", query.Namespace, query.Service, time.Now().UnixNano()))); err != nil {
+		return nil, 0, err
+	}
+	snapshotRevision := h.node.Status().AppliedIndex
+
+	start, end := prefixRange(registry.ServicePrefix(query.Namespace, query.Service))
+	items, err := h.node.Scan(ctx, start, end, 0)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "read_failed", err.Error())
-		return
-	}
-	if len(value) == 0 {
-		writeError(w, http.StatusNotFound, "not_found", "key not found")
-		return
+		return nil, 0, err
 	}
 
-	writeJSON(w, http.StatusOK, SuccessResponse{
-		Code: "ok",
-		Data: KVResponseDTO{Key: key, Value: value},
-	})
-}
-
-// DeleteKV 处理单 key 删除。
-func (h *RegistryAPI) DeleteKV(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodDelete) {
-		return
-	}
-	if !h.ensureWritable(w) {
-		return
-	}
-
-	key, err := pathKey(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	if err := h.propose(r.Context(), storage.Command{
-		Operation: storage.OperationDelete,
-		Key:       []byte(key),
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, SuccessResponse{Code: "ok", Message: "kv deleted"})
-}
-
-// List 处理前缀扫描。
-func (h *RegistryAPI) List(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
-	}
-
-	prefix := r.URL.Query().Get("prefix")
-	limit, err := parseLimit(r.URL.Query().Get("limit"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-
-	start, end := prefixRange(prefix)
-	ctx, cancel := context.WithTimeout(r.Context(), h.requestTimout)
-	defer cancel()
-
-	items, err := h.node.Scan(ctx, start, end, limit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "scan_failed", err.Error())
-		return
-	}
-
-	result := make([]KVResponseDTO, 0, len(items))
+	now := time.Now().Unix()
+	result := make([]RegistryInstanceDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, KVResponseDTO{Key: string(item.Key), Value: append([]byte(nil), item.Value...)})
+		var value registry.Value
+		if err := json.Unmarshal(item.Value, &value); err != nil {
+			continue
+		}
+		instance, ok := registryInstanceDTOFromValue(value, query, now)
+		if !ok {
+			continue
+		}
+		result = append(result, instance)
+		if query.Limit > 0 && len(result) >= query.Limit {
+			break
+		}
 	}
 
-	writeJSON(w, http.StatusOK, SuccessResponse{Code: "ok", Data: result})
+	return result, snapshotRevision, nil
 }
 
-// DeletePrefix 处理按前缀删除。
-func (h *RegistryAPI) DeletePrefix(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodDelete) {
-		return
-	}
-	if !h.ensureWritable(w) {
-		return
+func (h *RegistryAPI) queryReplicatedInstances(ctx context.Context, query registry.Query, now int64) ([]RegistryInstanceDTO, error) {
+	items, err := h.node.Scan(ctx, []byte(registry.ReplicationRootPrefix), prefixUpperBound(registry.ReplicationRootPrefix), 0)
+	if err != nil {
+		return nil, err
 	}
 
-	prefix := r.URL.Query().Get("prefix")
-	if prefix == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "prefix is required")
-		return
-	}
-	if err := h.propose(r.Context(), storage.Command{
-		Operation: storage.OperationDeletePrefix,
-		Prefix:    []byte(prefix),
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
-		return
+	result := make([]RegistryInstanceDTO, 0)
+	for _, item := range items {
+		_, _, namespace, service, _, ok := registry.ParseReplicatedKey(item.Key)
+		if !ok || namespace != query.Namespace || service != query.Service {
+			continue
+		}
+
+		var replicated registry.ReplicatedValue
+		if err := json.Unmarshal(item.Value, &replicated); err != nil {
+			continue
+		}
+		instance, ok := registryInstanceDTOFromValue(replicated.ToValue(), query, now)
+		if !ok {
+			continue
+		}
+		result = append(result, instance)
+		if query.Limit > 0 && len(result) >= query.Limit {
+			break
+		}
 	}
 
-	writeJSON(w, http.StatusOK, SuccessResponse{Code: "ok", Message: "prefix deleted"})
+	return result, nil
 }
 
 // Healthz 返回进程存活状态。
@@ -519,6 +790,20 @@ func (h *HealthAPI) Readyz(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Metrics 返回基础 Prometheus 文本指标。
+func (h *HealthAPI) Metrics(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	if h.metricsHandler != nil {
+		h.metricsHandler.ServeHTTP(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // Status 返回当前节点视角下的集群状态。
 func (h *ControlAPI) Status(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
@@ -551,6 +836,36 @@ func (h *ControlAPI) Status(w http.ResponseWriter, r *http.Request) {
 			GRPCAddrs:      h.book.SnapshotGRPC(),
 			AdminAddrs:     h.book.SnapshotAdmin(),
 		},
+	})
+}
+
+// ReplicationStatus 返回当前复制任务状态。
+func (h *ControlAPI) ReplicationStatus(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	items := make([]ReplicationStatusDTO, 0)
+	if h.replicationTracker != nil {
+		for _, item := range h.replicationTracker.List() {
+			items = append(items, ReplicationStatusDTO{
+				SourceRegion:         item.SourceRegion,
+				SourceClusterID:      item.SourceClusterID,
+				Namespace:            item.Namespace,
+				Service:              item.Service,
+				Connected:            item.Connected,
+				LastAppliedRevision:  item.LastAppliedRevision,
+				LastSnapshotRevision: item.LastSnapshotRevision,
+				LastSyncUnix:         item.LastSyncUnix,
+				ErrorCount:           item.ErrorCount,
+				LastError:            item.LastError,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, SuccessResponse{
+		Code: "ok",
+		Data: items,
 	})
 }
 
@@ -714,6 +1029,351 @@ func (h *RegistryAPI) leaderHTTPAddr(leaderID uint64) string {
 	return h.book.HTTPAddr(leaderID)
 }
 
+func (h *RegistryAPI) isAuthorizedReplicationRequest(r *http.Request) bool {
+	token := strings.TrimSpace(h.replicateAuth)
+	if token == "" {
+		return false
+	}
+
+	return strings.TrimSpace(r.Header.Get("Authorization")) == "Bearer "+token
+}
+
+func (h *RegistryAPI) isAuthorizedPrometheusSDRequest(r *http.Request) bool {
+	token := strings.TrimSpace(h.promSDAuth)
+	if token == "" {
+		return false
+	}
+
+	return strings.TrimSpace(r.Header.Get("Authorization")) == "Bearer "+token
+}
+
+type prometheusSDQuery struct {
+	Namespace   string
+	Service     string
+	Zone        string
+	Endpoint    string
+	Scope       string
+	IncludeSelf bool
+	Selector    registry.Selector
+}
+
+func parsePrometheusSDQuery(values map[string][]string) (prometheusSDQuery, error) {
+	query := prometheusSDQuery{
+		Namespace: strings.TrimSpace(firstQueryValue(values, "namespace")),
+		Service:   strings.TrimSpace(firstQueryValue(values, "service")),
+		Zone:      strings.TrimSpace(firstQueryValue(values, "zone")),
+		Endpoint:  strings.TrimSpace(firstQueryValue(values, "endpoint")),
+		Scope:     strings.TrimSpace(firstQueryValue(values, "scope")),
+	}
+	if query.Endpoint == "" {
+		query.Endpoint = "metrics"
+	}
+	if query.Scope == "" {
+		query.Scope = "local"
+	}
+	if query.Service != "" && query.Namespace == "" {
+		return prometheusSDQuery{}, fmt.Errorf("namespace is required when service is specified")
+	}
+	switch query.Scope {
+	case "local", "merged":
+	default:
+		return prometheusSDQuery{}, fmt.Errorf("scope must be one of local or merged")
+	}
+
+	includeSelfRaw := strings.TrimSpace(firstQueryValue(values, "includeSelf"))
+	if includeSelfRaw != "" {
+		includeSelf, err := strconv.ParseBool(includeSelfRaw)
+		if err != nil {
+			return prometheusSDQuery{}, fmt.Errorf("invalid includeSelf %q", includeSelfRaw)
+		}
+		query.IncludeSelf = includeSelf
+	}
+
+	selector, err := registry.ParseLabelSelectorFilters(values["selector"], values["label"])
+	if err != nil {
+		return prometheusSDQuery{}, err
+	}
+	query.Selector = selector
+
+	return query, nil
+}
+
+func firstQueryValue(values map[string][]string, key string) string {
+	items := values[key]
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0]
+}
+
+func (h *RegistryAPI) prometheusSDTargetGroups(ctx context.Context, query prometheusSDQuery) ([]PrometheusSDTargetGroupDTO, error) {
+	result := make([]PrometheusSDTargetGroupDTO, 0)
+
+	localItems, err := h.localPrometheusSDTargetGroups(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, localItems...)
+
+	if query.Scope == "merged" {
+		replicatedItems, err := h.replicatedPrometheusSDTargetGroups(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, replicatedItems...)
+	}
+
+	if query.IncludeSelf {
+		result = append(result, h.selfPrometheusSDTargetGroups()...)
+	}
+
+	return result, nil
+}
+
+func (h *RegistryAPI) localPrometheusSDTargetGroups(ctx context.Context, query prometheusSDQuery) ([]PrometheusSDTargetGroupDTO, error) {
+	items, err := h.node.Scan(ctx, []byte(registry.RootPrefix), prefixUpperBound(registry.RootPrefix), 0)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	result := make([]PrometheusSDTargetGroupDTO, 0)
+	for _, item := range items {
+		var value registry.Value
+		if err := json.Unmarshal(item.Value, &value); err != nil {
+			continue
+		}
+		if !registry.IsAlive(value, now) {
+			continue
+		}
+		if !matchPrometheusSDQuery(value, query) {
+			continue
+		}
+
+		group, ok := prometheusSDTargetGroupFromValue(value, query.Endpoint, "local", h.sourceRegion, h.sourceCluster)
+		if !ok {
+			continue
+		}
+		result = append(result, group)
+	}
+
+	return result, nil
+}
+
+func (h *RegistryAPI) replicatedPrometheusSDTargetGroups(ctx context.Context, query prometheusSDQuery) ([]PrometheusSDTargetGroupDTO, error) {
+	items, err := h.node.Scan(ctx, []byte(registry.ReplicationRootPrefix), prefixUpperBound(registry.ReplicationRootPrefix), 0)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	result := make([]PrometheusSDTargetGroupDTO, 0)
+	for _, item := range items {
+		var replicated registry.ReplicatedValue
+		if err := json.Unmarshal(item.Value, &replicated); err != nil {
+			continue
+		}
+		value := replicated.ToValue()
+		if !registry.IsAlive(value, now) {
+			continue
+		}
+		if !matchPrometheusSDQuery(value, query) {
+			continue
+		}
+
+		group, ok := prometheusSDTargetGroupFromValue(value, query.Endpoint, "replicated", replicated.SourceRegion, replicated.SourceClusterID)
+		if !ok {
+			continue
+		}
+		result = append(result, group)
+	}
+
+	return result, nil
+}
+
+func matchPrometheusSDQuery(value registry.Value, query prometheusSDQuery) bool {
+	return registry.MatchQuery(value, registry.Query{
+		Namespace: query.Namespace,
+		Service:   query.Service,
+		Zone:      query.Zone,
+		Selector:  query.Selector,
+	})
+}
+
+func prometheusSDTargetGroupFromValue(value registry.Value, endpointName, origin, sourceRegion, sourceCluster string) (PrometheusSDTargetGroupDTO, bool) {
+	endpoint, ok := findPrometheusEndpoint(value.Endpoints, endpointName)
+	if !ok {
+		return PrometheusSDTargetGroupDTO{}, false
+	}
+
+	address, ok := joinPrometheusTargetAddress(endpoint.Host, endpoint.Port)
+	if !ok {
+		return PrometheusSDTargetGroupDTO{}, false
+	}
+
+	labels := map[string]string{
+		"namespace":        value.Namespace,
+		"service":          value.Service,
+		"instance_id":      value.InstanceID,
+		"region":           sourceRegion,
+		"zone":             value.Zone,
+		"cluster_id":       sourceCluster,
+		"target_origin":    origin,
+		"target_kind":      "service_instance",
+		"endpoint_name":    endpoint.Name,
+		"endpoint_proto":   endpoint.Protocol,
+		"__scheme__":       normalizePrometheusScheme(endpoint.Protocol),
+		"__metrics_path__": normalizePrometheusPath(endpoint.Path),
+	}
+	addPrefixedPrometheusLabels(labels, "starmap_label_", value.Labels)
+	addPrefixedPrometheusLabels(labels, "starmap_meta_", value.Metadata)
+	deleteEmptyLabels(labels)
+
+	return PrometheusSDTargetGroupDTO{
+		Targets: []string{address},
+		Labels:  labels,
+	}, true
+}
+
+func findPrometheusEndpoint(endpoints []registry.Endpoint, expected string) (registry.Endpoint, bool) {
+	for _, endpoint := range endpoints {
+		if endpoint.Name == expected || endpoint.Protocol == expected {
+			if scheme := normalizePrometheusScheme(endpoint.Protocol); scheme == "http" || scheme == "https" {
+				return endpoint, true
+			}
+		}
+	}
+	return registry.Endpoint{}, false
+}
+
+func normalizePrometheusScheme(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "https":
+		return "https"
+	default:
+		return "http"
+	}
+}
+
+func normalizePrometheusPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "/metrics"
+	}
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
+}
+
+func joinPrometheusTargetAddress(host string, port int32) (string, bool) {
+	host = strings.TrimSpace(host)
+	if host == "" || port <= 0 {
+		return "", false
+	}
+	if host == "0.0.0.0" || host == "::" || host == "[::]" {
+		return "", false
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), true
+}
+
+func addPrefixedPrometheusLabels(target map[string]string, prefix string, items map[string]string) {
+	for key, value := range items {
+		sanitizedKey := sanitizePrometheusLabelName(prefix + key)
+		if sanitizedKey == "" {
+			continue
+		}
+		target[sanitizedKey] = strings.TrimSpace(value)
+	}
+}
+
+func sanitizePrometheusLabelName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	builder := strings.Builder{}
+	for index, r := range raw {
+		allowed := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (r >= '0' && r <= '9' && index > 0)
+		if allowed {
+			builder.WriteRune(r)
+			continue
+		}
+		builder.WriteByte('_')
+	}
+
+	sanitized := builder.String()
+	if sanitized == "" {
+		return ""
+	}
+	first := sanitized[0]
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+		sanitized = "_" + sanitized
+	}
+	return sanitized
+}
+
+func deleteEmptyLabels(labels map[string]string) {
+	for key, value := range labels {
+		if strings.TrimSpace(value) == "" {
+			delete(labels, key)
+		}
+	}
+}
+
+func (h *RegistryAPI) selfPrometheusSDTargetGroups() []PrometheusSDTargetGroupDTO {
+	httpAddrs := h.book.SnapshotHTTP()
+	status := h.node.Status()
+	if currentAddr := strings.TrimSpace(h.httpAddr); currentAddr != "" {
+		httpAddrs[status.NodeID] = currentAddr
+	}
+
+	result := make([]PrometheusSDTargetGroupDTO, 0, len(httpAddrs))
+	for nodeID, addr := range httpAddrs {
+		target, ok := normalizePrometheusDiscoveryAddress(addr)
+		if !ok {
+			continue
+		}
+		result = append(result, PrometheusSDTargetGroupDTO{
+			Targets: []string{target},
+			Labels: map[string]string{
+				"namespace":        "system",
+				"service":          "starmapd",
+				"instance_id":      fmt.Sprintf("node-%d", nodeID),
+				"node_id":          strconv.FormatUint(nodeID, 10),
+				"region":           h.sourceRegion,
+				"cluster_id":       h.sourceCluster,
+				"target_origin":    "self",
+				"target_kind":      "starmapd",
+				"component":        "starmapd",
+				"__scheme__":       "http",
+				"__metrics_path__": "/metrics",
+			},
+		})
+	}
+
+	return result
+}
+
+// 过滤没有意义的ip地址，这种地址本来Prometheus也抓不到
+func normalizePrometheusDiscoveryAddress(addr string) (string, bool) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "", false
+	}
+
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", false
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		return "", false
+	}
+	return net.JoinHostPort(host, port), true
+}
+
 func (h *HealthAPI) leaderHTTPAddr(leaderID uint64) string {
 	if leaderID == 0 {
 		return ""
@@ -786,32 +1446,22 @@ func writeNotLeader(w http.ResponseWriter, leaderID uint64, leaderAddr string) {
 	})
 }
 
-func pathKey(path string) (string, error) {
-	key := strings.TrimPrefix(path, "/api/v1/kv/")
-	if key == "" || key == path {
-		return "", fmt.Errorf("kv key is required")
-	}
-
-	decoded, err := url.PathUnescape(key)
+func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, revision uint64, event string, payload interface{}) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return decoded, nil
-}
-
-func parseLimit(raw string) (int, error) {
-	if strings.TrimSpace(raw) == "" {
-		return 0, nil
+	if _, err := fmt.Fprintf(w, "id: %d\n", revision); err != nil {
+		return err
 	}
-
-	limit, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, err
+	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
+		return err
 	}
-	if limit < 0 {
-		return 0, fmt.Errorf("limit must be greater than or equal to 0")
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return err
 	}
-	return limit, nil
+	flusher.Flush()
+	return nil
 }
 
 func prefixRange(prefix string) ([]byte, []byte) {
@@ -820,8 +1470,29 @@ func prefixRange(prefix string) ([]byte, []byte) {
 	}
 
 	start := []byte(prefix)
-	end := append(append([]byte(nil), start...), 0xFF)
+	end := prefixUpperBound(prefix)
 	return start, end
+}
+
+func prefixUpperBound(prefix string) []byte {
+	if prefix == "" {
+		return nil
+	}
+
+	return append(append([]byte(nil), []byte(prefix)...), 0xFF)
+}
+
+func parseSinceRevision(raw string) (uint64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid sinceRevision %q", raw)
+	}
+	return value, nil
 }
 
 func mustMarshalJSON(value interface{}) []byte {

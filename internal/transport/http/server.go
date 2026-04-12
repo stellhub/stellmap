@@ -10,22 +10,22 @@ type RegistryHandler interface {
 	Deregister(w http.ResponseWriter, r *http.Request)
 	Heartbeat(w http.ResponseWriter, r *http.Request)
 	QueryInstances(w http.ResponseWriter, r *http.Request)
-	PutKV(w http.ResponseWriter, r *http.Request)
-	Get(w http.ResponseWriter, r *http.Request)
-	DeleteKV(w http.ResponseWriter, r *http.Request)
-	List(w http.ResponseWriter, r *http.Request)
-	DeletePrefix(w http.ResponseWriter, r *http.Request)
+	WatchInstances(w http.ResponseWriter, r *http.Request)
+	WatchReplication(w http.ResponseWriter, r *http.Request)
+	PrometheusSD(w http.ResponseWriter, r *http.Request)
 }
 
 // HealthHandler 描述健康检查能力。
 type HealthHandler interface {
 	Healthz(w http.ResponseWriter, r *http.Request)
 	Readyz(w http.ResponseWriter, r *http.Request)
+	Metrics(w http.ResponseWriter, r *http.Request)
 }
 
 // ControlHandler 描述控制面能力。
 type ControlHandler interface {
 	Status(w http.ResponseWriter, r *http.Request)
+	ReplicationStatus(w http.ResponseWriter, r *http.Request)
 	AddLearner(w http.ResponseWriter, r *http.Request)
 	PromoteLearner(w http.ResponseWriter, r *http.Request)
 	RemoveMember(w http.ResponseWriter, r *http.Request)
