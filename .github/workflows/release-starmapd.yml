@@ -1,0 +1,178 @@
+name: Release StarMap To COS
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "发布通道，例如 prod / staging"
+        required: true
+        default: "prod"
+      cos_base_url:
+        description: "COS 公开访问根地址，例如 https://starmap-1250000000.cos.ap-guangzhou.myqcloud.com"
+        required: true
+      publish_channel_pointer:
+        description: "是否更新 channel current.json"
+        required: true
+        default: "true"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.9"
+  APP_NAME: "starmapd"
+  TARGET_OS: "linux"
+  TARGET_ARCH: "amd64"
+  RELEASE_ROOT: "starmapd/releases"
+  CHANNEL_ROOT: "starmapd/channels"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ github.event.inputs.channel || 'prod' }}
+      COS_BASE_URL: ${{ github.event.inputs.cos_base_url || vars.COS_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Prepare build metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="$(date -u +'%Y.%m.%d-%H%M%S')-${short_sha}"
+          fi
+
+          artifact_name="${APP_NAME}-${TARGET_OS}-${TARGET_ARCH}.tar.gz"
+          release_dir="${APP_NAME}-${TARGET_OS}-${TARGET_ARCH}"
+          release_path="${RELEASE_ROOT}/${version}"
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+          echo "release_dir=${release_dir}" >> "${GITHUB_OUTPUT}"
+          echo "release_path=${release_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/${{ steps.meta.outputs.release_dir }}/bin
+          CGO_ENABLED=0 GOOS=${TARGET_OS} GOARCH=${TARGET_ARCH} \
+            go build -trimpath -ldflags="-s -w" \
+            -o dist/${{ steps.meta.outputs.release_dir }}/bin/${APP_NAME} \
+            ./cmd/starmapd
+
+          cp -R config dist/${{ steps.meta.outputs.release_dir }}/
+          cp -R deploy dist/${{ steps.meta.outputs.release_dir }}/
+
+      - name: Package release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          tar -czf "${{ steps.meta.outputs.artifact_name }}" "${{ steps.meta.outputs.release_dir }}"
+          sha256sum "${{ steps.meta.outputs.artifact_name }}" | awk '{print $1}' > SHA256SUM
+
+      - name: Generate manifest files
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256_value="$(cat dist/SHA256SUM)"
+          artifact_url="${COS_BASE_URL}/${{ steps.meta.outputs.release_path }}/${{ steps.meta.outputs.artifact_name }}"
+          manifest_url="${COS_BASE_URL}/${{ steps.meta.outputs.release_path }}/manifest.json"
+
+          cat > dist/manifest.json <<EOF
+          {
+            "app": "${APP_NAME}",
+            "version": "${{ steps.meta.outputs.version }}",
+            "git_sha": "${GITHUB_SHA}",
+            "os": "${TARGET_OS}",
+            "arch": "${TARGET_ARCH}",
+            "artifact_name": "${{ steps.meta.outputs.artifact_name }}",
+            "artifact_url": "${artifact_url}",
+            "sha256": "${sha256_value}",
+            "released_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "release_channel": "${CHANNEL}"
+          }
+          EOF
+
+          cat > dist/current.json <<EOF
+          {
+            "app": "${APP_NAME}",
+            "channel": "${CHANNEL}",
+            "version": "${{ steps.meta.outputs.version }}",
+            "manifest_url": "${manifest_url}",
+            "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          }
+          EOF
+
+      - name: Install coscmd
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install coscmd
+
+      - name: Configure coscmd
+        shell: bash
+        env:
+          TENCENT_SECRET_ID: ${{ secrets.TENCENT_SECRET_ID }}
+          TENCENT_SECRET_KEY: ${{ secrets.TENCENT_SECRET_KEY }}
+          TENCENT_COS_BUCKET: ${{ secrets.TENCENT_COS_BUCKET }}
+          TENCENT_COS_REGION: ${{ secrets.TENCENT_COS_REGION }}
+        run: |
+          set -euo pipefail
+          [[ -n "${TENCENT_SECRET_ID}" ]] || { echo "missing TENCENT_SECRET_ID"; exit 1; }
+          [[ -n "${TENCENT_SECRET_KEY}" ]] || { echo "missing TENCENT_SECRET_KEY"; exit 1; }
+          [[ -n "${TENCENT_COS_BUCKET}" ]] || { echo "missing TENCENT_COS_BUCKET"; exit 1; }
+          [[ -n "${TENCENT_COS_REGION}" ]] || { echo "missing TENCENT_COS_REGION"; exit 1; }
+
+          cat > "${HOME}/.cos.conf" <<EOF
+          [common]
+          secret_id = ${TENCENT_SECRET_ID}
+          secret_key = ${TENCENT_SECRET_KEY}
+          bucket = ${TENCENT_COS_BUCKET}
+          region = ${TENCENT_COS_REGION}
+          scheme = https
+          EOF
+
+      - name: Upload release files to COS
+        shell: bash
+        run: |
+          set -euo pipefail
+          coscmd upload -f dist/${{ steps.meta.outputs.artifact_name }} /${{ steps.meta.outputs.release_path }}/${{ steps.meta.outputs.artifact_name }}
+          coscmd upload -f dist/manifest.json /${{ steps.meta.outputs.release_path }}/manifest.json
+          coscmd upload -f dist/SHA256SUM /${{ steps.meta.outputs.release_path }}/SHA256SUM
+
+      - name: Update release channel pointer
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish_channel_pointer == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          coscmd upload -f dist/current.json /${CHANNEL_ROOT}/${CHANNEL}/current.json
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ steps.meta.outputs.version }}
+          path: |
+            dist/${{ steps.meta.outputs.artifact_name }}
+            dist/manifest.json
+            dist/SHA256SUM
+            dist/current.json
