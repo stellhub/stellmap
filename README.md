@@ -53,6 +53,10 @@
 
 ## 总体架构
 
+当前实现中的 `starmapd` 由公共 `HTTP`、独立 `admin HTTP` 和内部 `gRPC` 三个监听面组成，整体运行关系如下：
+
+![StarMap 架构图](docs/images/architecture-overview.svg)
+
 ### 共识层
 
 `StarMap` 的注册中心集群采用单 `Raft` 组，基于 [`etcd-io/raft`](https://github.com/etcd-io/raft) 实现复制状态机。
@@ -97,10 +101,10 @@
 
 所有读请求都必须是线性一致读，不提供默认的 stale read。
 
-推荐实现路径：
+实现路径：
 
-- 所有外部读请求统一路由到 Leader
-- Leader 使用 `ReadIndex` 流程确认其领导权仍然有效
+- 外部读请求统一进入 `raftnode.LinearizableRead`
+- `LinearizableRead` 内部通过 `ReadIndex` 申请读屏障
 - 状态机 `appliedIndex >= readIndex` 后再从本地状态机读取
 
 这样做的好处是：
@@ -109,10 +113,7 @@
 - 读路径仍然较短
 - 可以严格满足注册中心对最新实例视图的要求
 
-如果客户端连到 Follower，可由 Follower：
-
-- 重定向到 Leader
-- 或通过内部 `gRPC` 转发到 Leader 后返回结果
+如果请求落到 Follower，`ReadIndex` 仍会通过 `Raft` 路径完成领导权确认，随后在本地状态机上返回线性一致结果。
 
 ## Membership 变更
 
@@ -295,7 +296,7 @@ data/
 - `admin HTTP` 只承载控制面动作，默认绑定到本地回环地址，例如 `127.0.0.1:18080`
 - `admin HTTP` 当前额外强制只接受来源为 `127.0.0.1` 的请求
 - `admin HTTP` 需要固定 token 鉴权，请求头格式为 `Authorization: Bearer <token>`
-- `starmapctl` 是控制面的唯一推荐入口
+- `starmapctl` 是控制面的唯一入口
 - 这意味着当前控制面默认只支持本机运维；如需跨机器运维，需要后续单独放宽来源限制并补更完整鉴权
 
 ### 内部 Transport
@@ -315,7 +316,7 @@ data/
 - Leader 转发读写请求
 - 节点管理与健康探测
 
-推荐策略：
+策略：
 
 - 外部开放面只提供 `HTTP API`
 - 内部复制面统一使用 `gRPC`
@@ -425,7 +426,7 @@ data/
 - 启动时扫描并恢复可用日志段
 - 提供 WAL 损坏检测和有限修复能力
 
-建议暴露的核心接口：
+核心接口：
 
 ```go
 type WAL interface {
@@ -450,7 +451,7 @@ type WAL interface {
 - 提供 snapshot stream 的读写支持
 - 控制快照保留策略和清理策略
 
-建议暴露的核心接口：
+核心接口：
 
 ```go
 type SnapshotStore interface {
@@ -473,7 +474,7 @@ type SnapshotStore interface {
 - 支持快照导出和快照恢复
 - 保证 apply 幂等与顺序性
 
-建议暴露的核心接口：
+核心接口：
 
 ```go
 type StateMachine interface {
@@ -497,101 +498,86 @@ type StateMachine interface {
 - Follower 到 Leader 的读写转发
 - 对三方客户端暴露注册、发现、健康接口
 
-建议子模块：
+子模块：
 
 - `transport/http`：公共 HTTP 数据面与独立 admin HTTP 控制面
 - `transport/grpc`：节点间复制、转发、快照同步的内部实现
 
 ## 模块协作关系
 
-首版建议按下面的调用方向实现，避免相互反向依赖：
+`cmd/starmapd/main.go` 当前会同时装配三套监听面：
 
-```text
-HTTP API
-   |
- service
-   |
-raftnode ---- transport/grpc
-    /   \
-  wal  snapshot
-        |
-      storage
-```
+- 公共 `HTTP`：`httptransport.NewPublicServer(registryHandler, health)`，承载 `/api/v1`、`/internal/v1`、`/healthz`、`/readyz`、`/metrics`
+- 独立 `admin HTTP`：`httptransport.NewAdminServer(control)`，外层再包一层 `adminAuthMiddleware`
+- 内部 `gRPC`：`grpctransport.NewServer(internalService).RegisterHandlers(grpcServer)`
+
+核心调用方向如下：
+
+- `RegistryAPI` 负责公共注册发现接口、内部复制 watch 和 Prometheus SD
+- `HealthAPI` 负责健康检查与指标暴露
+- `ControlAPI` 负责集群状态、复制状态、成员变更和 Leader 转移
+- `grpctransport.Server` 只做 protobuf server 适配，实际逻辑由 `runtime.InternalTransportService` 执行
+- `runtime.PeerTransport` 消费 `raftnode.Ready()`，按目标节点分组发送 `RaftMessageBatch`，并对 `MsgSnap` 执行快照分片传输
+- `raftnode` 是统一入口：写请求走 `ProposeCommand`，读请求走 `Get/Scan` 的线性一致读路径，成员变更走 `ApplyConfChange`
 
 约束原则：
 
-- `service` 不直接改 `Pebble`，所有实例变更都经由 `raftnode.Propose`
-- 线性一致读由 `raftnode.ReadIndex + storage.Get/Scan` 组合完成，再还原成注册中心视图
+- `transport/http` 和 `transport/grpc` 都不直接改 `Pebble`
+- 业务写入统一经由 `raftnode.ProposeCommand`
+- 线性一致读由 `raftnode.LinearizableRead + storage.Get/Scan` 组合完成
 - `wal` 不依赖 `storage`
 - `snapshot` 可以调用 `storage` 导出和恢复，但不反向依赖 `raftnode`
 
-## Proto 草案
+## 内部 gRPC 协议
 
-协议建议分成两个文件：
+内部复制协议固定由 `api/proto/starmap/v1/raft.proto` 和 `api/proto/starmap/v1/snapshot.proto` 定义，只用于节点间通信，不对外部业务客户端开放。
 
-- `raft.proto`：内部 Raft message 的 `gRPC` 传输协议
-- `snapshot.proto`：内部快照同步的 `gRPC` 传输协议
+### 服务定义
 
-设计原则：
+| 服务 | RPC | 方向 | 说明 |
+| --- | --- | --- | --- |
+| `RaftTransport` | `Send(RaftMessageBatch) returns (RaftMessageAck)` | Unary | 批量发送普通 `Raft` 消息 |
+| `SnapshotService` | `Install(stream InstallSnapshotChunk) returns (InstallSnapshotResponse)` | Client Streaming | 上传快照分片并在 EOF 时安装 |
+| `SnapshotService` | `Download(DownloadSnapshotRequest) returns (stream DownloadSnapshotChunk)` | Server Streaming | 按 `term/index` 下载快照 |
 
-- 对外 `HTTP API` 不再使用 proto 定义，直接在服务端 handler 和 SDK 中维护 HTTP 契约
-- 对内 `gRPC` 才使用 proto，避免对外和对内两套协议风格混杂
-- 业务数据面与内部复制面边界分离，协议职责更清晰
+### 消息模型
 
-### `raft.proto`
+- `RaftEnvelope`：字段为 `from`、`to`、`payload`，其中 `payload` 是序列化后的 `raftpb.Message`
+- `RaftMessageBatch`：同一目标节点的一批 `RaftEnvelope`
+- `SnapshotMetadata`：包含 `term`、`index`、`conf_state`、`checksum`、`file_size`
+- `SnapshotChunk`：包含 `metadata`、`data`、`offset`、`eof`
 
-定义内部 `gRPC` 复制接口和消息结构。
+### 实现对应关系
 
-示意：
+- [internal/transport/grpc/server.go](internal/transport/grpc/server.go) 同时注册 `RaftTransport` 与 `SnapshotService`，并把 protobuf 类型转换为本地 `RaftMessageBatch` / `SnapshotChunk`
+- [internal/runtime/transport_service.go](internal/runtime/transport_service.go) 中的 `InternalTransportService` 负责真正的消息处理：`SendRaftMessages` 调 `node.Step`，`InstallSnapshotChunk` 在内存中按 `term-index` 聚合分片，`DownloadSnapshot` 从本地快照存储切块返回
+- [internal/runtime/peer_transport.go](internal/runtime/peer_transport.go) 会把 `Ready.Messages` 按目标节点分组；普通消息走 `Client.Send`，`MsgSnap` 走 `splitSnapshotChunks + Client.InstallSnapshot`
 
-```proto
-syntax = "proto3";
-
-package starmap.v1;
-
-service RaftTransport {
-  rpc Send(RaftMessageBatch) returns (RaftMessageAck);
-}
-```
-
-实际实现时，可直接对 `raftpb.Message` 做二进制封装，避免在 `.proto` 层重复展开完整字段。
-
-### `snapshot.proto`
-
-定义内部快照 `gRPC` 流式接口。
-
-```proto
-syntax = "proto3";
-
-package starmap.v1;
-
-service SnapshotService {
-  rpc Install(stream InstallSnapshotChunk) returns (InstallSnapshotResponse);
-  rpc Download(DownloadSnapshotRequest) returns (stream DownloadSnapshotChunk);
-}
-```
+![StarMap gRPC 流程图](docs/images/grpc-flow.svg)
 
 ## 控制面设计
 
-成员变更、leader 转移和集群状态查看统一由命令行工具 `starmapctl` 触发，但 `starmapctl` 底层仍然通过 `starmapd` 的独立 `admin HTTP` listener 执行控制面动作。
+成员变更、Leader 转移和集群状态查看统一由 `starmapctl` 触发，但底层执行路径仍然是 `starmapd` 的独立 `admin HTTP` listener。
 
-这样设计的原因：
-
-- 成员变更属于低频、高风险控制面动作，不应和公共业务 HTTP 共用同一个 listener
-- `CLI` 只是受控触发入口，真正的集群动作仍然需要由 Leader 服务端提交 `ConfChange`
-- 独立 `admin` listener 更便于做本地绑定、管理网隔离、审计和后续鉴权扩展
-- 可以把业务客户端和运维入口的暴露面严格分开
-- 首版最小鉴权采用固定 Bearer Token，后续可平滑升级到 mTLS 或更完整的 IAM
-
-当前边界建议：
+当前控制面边界：
 
 - 公共业务客户端只访问 `HTTPAddr`
 - `starmapctl` 默认访问本地 `AdminAddr`
-- `starmapd` 启动时应显式配置 `AdminToken`
-- `admin` 请求当前必须同时满足“来源地址是 `127.0.0.1`”和“携带固定 Bearer Token”
-- `PeerAdminAddrs` 仍用于 leader 跟随和控制面状态展示，但当前实现不接受远端直接访问这些 admin 地址
+- `admin` 请求必须同时满足“来源地址是 `127.0.0.1`”和“携带 `Authorization: Bearer <token>`”
+- `PeerAdminAddrs` 只用于 Leader 跟随和控制面状态展示，不接受远端直接访问
 
-建议首批命令：
+控制面路由如下：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/admin/v1/status` | 返回当前节点视角下的集群状态 |
+| `GET` | `/admin/v1/replication/status` | 返回当前复制任务状态 |
+| `POST` | `/admin/v1/members/add-learner` | 新增 learner |
+| `POST` | `/admin/v1/members/promote` | 提升 learner |
+| `POST` | `/admin/v1/members/remove` | 移除成员 |
+| `POST` | `/admin/v1/leader/transfer` | 主动触发 Leader 转移 |
+
+常用命令：
 
 - `starmapctl member add-learner`
 - `starmapctl member promote`
@@ -599,19 +585,89 @@ service SnapshotService {
 - `starmapctl leader transfer`
 - `starmapctl status`
 
-## HTTP API 草案
+## HTTP API
 
-对外 `HTTP API` 目标是易接入、语义稳定、便于脚本调用。建议统一前缀为 `/api/v1`。
+`StarMap` 的 `HTTPAddr` 监听面同时承载三类路由：
 
-### 注册与发现接口
+- 公共注册发现数据面：`/api/v1`
+- 内部复制与监控辅助接口：`/internal/v1`
+- 健康检查与指标：`/healthz`、`/readyz`、`/metrics`
+
+独立的 `AdminAddr` 只承载 `/admin/v1` 控制面。
+
+![StarMap HTTP 流程图](docs/images/http-flow.svg)
+
+### 公共注册与发现接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/api/v1/registry/register` | 注册实例 |
-| `POST` | `/api/v1/registry/deregister` | 注销实例 |
-| `POST` | `/api/v1/registry/heartbeat` | 实例续约/心跳 |
-| `GET` | `/api/v1/registry/instances` | 按服务维度查询实例候选集 |
-| `GET` | `/api/v1/registry/watch` | 通过 SSE watch 实例变化 |
+| `POST` | `/api/v1/registry/register` | 注册实例；非 Leader 返回 `503 not_leader` |
+| `POST` | `/api/v1/registry/deregister` | 注销实例；非 Leader 返回 `503 not_leader` |
+| `POST` | `/api/v1/registry/heartbeat` | 续约实例；会先线性一致读取当前实例，再提交更新 |
+| `GET` | `/api/v1/registry/instances` | 按条件线性一致查询实例候选集 |
+| `GET` | `/api/v1/registry/watch` | 通过 SSE 推送 `snapshot` / `upsert` / `delete` 事件 |
+
+### 内部 HTTP 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/internal/v1/replication/watch` | 跨 region 目录同步专用 SSE；需要 `Bearer <replication_token>` |
+| `GET` | `/internal/v1/prometheus/sd` | Prometheus HTTP SD；需要 `Bearer <prometheus_sd_token>` |
+
+`/internal/v1/replication/watch` 的行为：
+
+- 支持 `namespace`、`service`、`zone`、`endpoint`、`selector`、`label` 等筛选参数
+- 支持 `sinceRevision`；命中本地 replay 缓冲时直接回放，否则先发一条 `snapshot`
+- 返回类型为 `text/event-stream`
+
+`/internal/v1/prometheus/sd` 的行为：
+
+- 返回 Prometheus 兼容的 target group JSON
+- 支持 `namespace`、`service`、`zone`、`endpoint`、`scope`、`includeSelf`、`selector`、`label`
+- `scope` 当前支持 `local` 和 `merged`
+- `endpoint` 默认值为 `metrics`
+
+Prometheus 最小接入示例：
+
+```yaml
+scrape_configs:
+  - job_name: starmap-services
+    http_sd_configs:
+      - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics
+        refresh_interval: 30s
+        authorization:
+          type: Bearer
+          credentials: starmap
+```
+
+对应返回示例：
+
+```json
+[
+  {
+    "targets": ["10.0.0.11:9090"],
+    "labels": {
+      "namespace": "prod",
+      "service": "order-service",
+      "instance_id": "order-1",
+      "region": "cn-sh",
+      "zone": "az1",
+      "cluster_id": "100",
+      "target_kind": "service_instance",
+      "__scheme__": "http",
+      "__metrics_path__": "/metrics"
+    }
+  }
+]
+```
+
+### 健康与调试接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/healthz` | 返回进程存活状态以及当前 `leaderId` / `leaderAddr` |
+| `GET` | `/readyz` | 节点已启动、未停止，且已经具备可服务的 `Raft` 状态时返回 ready |
+| `GET` | `/metrics` | 暴露 Prometheus 文本指标 |
 
 ### 注册模型说明
 
@@ -622,14 +678,6 @@ service SnapshotService {
 - 协议入口：`endpoints[]`
 - 租约属性：`leaseTtlSeconds`
 
-这样设计的原因：
-
-- 一个实例通常不止一个访问入口，可能同时暴露 `http`、`grpc`、`metrics`
-- `zone` 属于实例级属性，不应塞进服务名或命名空间
-- `labels` 用于治理与筛选，适合承载染色标签、版本、环境等低基数标签
-- `metadata` 用于补充描述，适合承载构建版本、负责人、镜像信息等附加字段
-- `weight` 放在端点级别更合理，因为流量最终命中的是具体协议入口
-
 字段约定：
 
 - `namespace`：稳定业务隔离域，例如 `prod`、`staging`、`tenant-a`
@@ -638,16 +686,12 @@ service SnapshotService {
 - `zone`：实例所在可用区，例如 `az1`
 - `labels`：低基数治理标签，例如 `color=gray`、`version=v2`
 - `metadata`：补充描述信息，例如 `build_sha=abc123`
-- `endpoints[].name`：实例内端点名，例如 `http`、`grpc`
+- `endpoints[].name`：实例内端点名；为空时服务端会补成 `protocol`
 - `endpoints[].protocol`：端点协议，例如 `http`、`grpc`、`tcp`
 - `endpoints[].host` / `endpoints[].port`：协议入口地址
+- `endpoints[].path`：可选路径，常用于 `metrics` 这类 `HTTP` 端点
 - `endpoints[].weight`：端点权重；未显式填写时，服务端默认补为 `100`
 - `leaseTtlSeconds`：实例租约 TTL；未显式填写或填写 `0` 时，服务端默认补为 `30`
-
-`labels` 和 `metadata` 之所以分开，是因为它们服务的场景不同：
-
-- `labels` 未来更适合参与筛选、路由、染色和治理
-- `metadata` 更适合做展示、审计和补充描述，不要求系统原生理解其语义
 
 注册请求示例：
 
@@ -671,6 +715,14 @@ service SnapshotService {
       "protocol": "http",
       "host": "10.0.1.23",
       "port": 8080,
+      "weight": 100
+    },
+    {
+      "name": "metrics",
+      "protocol": "http",
+      "host": "10.0.1.23",
+      "port": 8080,
+      "path": "/metrics",
       "weight": 100
     },
     {
@@ -711,18 +763,18 @@ GET /api/v1/registry/watch?namespace=prod&service=order-service&selector=color=g
 watch 约定：
 
 - 返回类型为 `text/event-stream`
-- 建连后会先推送一条 `snapshot` 事件，携带当前候选实例全集
+- 建连后先推送一条 `snapshot` 事件，携带当前候选实例全集
 - 后续实例新增或更新时推送 `upsert`
 - 后续实例删除或不再满足当前筛选条件时推送 `delete`
-- 每条事件都会带 `revision`，当前对应底层已提交日志索引
+- 每条事件都带 `revision`，对应底层已提交日志索引
 
 查询约定：
 
 - `namespace`、`service`：必填
 - `zone`：可选
-- `endpoint`：可选，当前兼容端点名或协议名匹配
-- `selector`：可选，支持一组按 `AND` 组合的标签表达式，当前支持 `key`、`!key`、`key=value`、`key!=value`、`key in (v1,v2)`、`key notin (v1,v2)`
-- `label`：兼容旧参数，可重复，格式 `label=key=value`；服务端会把它转换成等值 selector
+- `endpoint`：可选，兼容端点名或协议名匹配
+- `selector`：可选，支持 `key`、`!key`、`key=value`、`key!=value`、`key in (v1,v2)`、`key notin (v1,v2)`
+- `label`：兼容旧参数，可重复，格式 `label=key=value`
 - `limit`：可选，仅限制最终返回候选集数量
 
 `selector` 接入说明：
@@ -730,9 +782,9 @@ watch 约定：
 - 单个 `selector` 参数内可以用顶层逗号组合多个条件，例如 `selector=color=gray,version in (v2),!deprecated`
 - 也可以重复传多个 `selector` 参数；服务端会把所有表达式按 `AND` 合并
 - `in/notin` 必须带括号，例如 `version in (v2,v3)`、`env notin (test,dev)`
-- 兼容参数 `label` 适合做老 SDK 迁移，例如 `label=color=gray&label=version=v2`
+- 兼容参数 `label` 适合老 SDK 迁移，例如 `label=color=gray&label=version=v2`
 
-推荐示例：
+示例：
 
 ```text
 GET /api/v1/registry/instances?namespace=prod&service=order-service&selector=color=gray,version%20in%20(v2),!deprecated
@@ -761,44 +813,14 @@ selector=color=gray,,version=v2
 
 - 服务端只负责过滤候选集，不负责按权重做最终实例选择
 - 权重会随端点信息一起返回，交给客户端 SDK、网关或 sidecar 做本地流量决策
-- 当前查询接口默认会跳过已经超过租约 TTL 且未续约的实例
-- 过期实例会由 Leader 在后台周期性扫描并通过 Raft `delete` proposal 真正清理出存储，而不只是查询时隐藏
+- 查询接口默认跳过已经超过租约 TTL 且未续约的实例
+- 过期实例会由 Leader 在后台周期性扫描并通过 `Raft delete proposal` 真正清理出存储，而不只是查询时隐藏
 - 后台扫描周期可通过 `--registry-cleanup-interval` 调整
-- 单轮后台清理最多处理多少个实例键可通过 `--registry-cleanup-delete-limit` 调整，用于控制大注册表场景下单次扫描/删除负载
-
-### 集群管理接口
-
-集群管理动作不再暴露在公共 HTTP API 上，而是挂在独立 `admin HTTP` listener 上，由 `starmapctl` 调用。
-
-建议管理面路由：
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/admin/v1/status` | 查看当前节点视角下的集群状态 |
-| `POST` | `/admin/v1/members/add-learner` | 新增 learner |
-| `POST` | `/admin/v1/members/promote` | 提升 learner |
-| `POST` | `/admin/v1/members/remove` | 移除成员 |
-| `POST` | `/admin/v1/leader/transfer` | 主动触发 Leader 转移 |
-
-约束：
-
-- `admin` listener 默认只绑定本地回环地址
-- `admin` listener 当前额外只接受来源为 `127.0.0.1` 的请求
-- `admin` 请求必须携带 `Authorization: Bearer <token>`
-- 不应直接暴露到公共业务流量入口
-- 当前默认只支持本机 `starmapctl` 运维；后续如需远程运维，应在放宽来源限制前先补更完整鉴权机制
-
-### 健康与调试接口
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/healthz` | 进程存活检查 |
-| `GET` | `/readyz` | 节点是否可服务 |
-| `GET` | `/metrics` | 指标暴露 |
+- 单轮后台清理删除上限可通过 `--registry-cleanup-delete-limit` 调整
 
 ### 配置方式
 
-当前推荐通过 `TOML` 配置文件启动 `starmapd`，命令行参数只用于覆盖配置文件里的个别字段。
+当前通过 `TOML` 配置文件启动 `starmapd`，命令行参数只用于覆盖配置文件里的个别字段。
 
 优先级规则：
 
@@ -806,7 +828,7 @@ selector=color=gray,,version=v2
 2. `--config` 指定的 `TOML` 配置文件
 3. 剩余字段必须显式提供，否则启动时报错
 
-推荐启动方式：
+启动方式：
 
 ```bash
 ./starmapd --config=./config/starmapd.toml
@@ -867,138 +889,41 @@ targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
 ./starmapd --config=./config/starmapd.toml --http-addr=:28080 --admin-token=new-token
 ```
 
-### Prometheus HTTP SD
+### HTTP 返回模型
 
-`StarMap` 现在支持 Prometheus 原生 `HTTP SD`，Prometheus 只需要改配置，不需要改源码。
-
-接口：
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/internal/v1/prometheus/sd` | Prometheus HTTP SD 目标列表 |
-
-鉴权方式：
-
-- 请求头：`Authorization: Bearer <prometheus_sd_token>`
-
-常用查询参数：
-
-- `namespace`：可选，按命名空间过滤
-- `service`：可选，按服务名过滤；设置时要求同时带 `namespace`
-- `zone`：可选，按可用区过滤
-- `selector`：可选，复用现有标签选择器语法
-- `endpoint`：可选，默认 `metrics`
-- `scope`：可选，默认 `local`，支持 `local|merged`
-- `includeSelf`：可选，默认 `false`；为 `true` 时额外返回 StarMap 自身节点的 `/metrics` 目标
-
-返回内容直接符合 Prometheus HTTP SD 格式，不再套统一响应 envelope，例如：
-
-```json
-[
-  {
-    "targets": ["10.0.0.11:9090"],
-    "labels": {
-      "namespace": "prod",
-      "service": "order-service",
-      "instance_id": "order-1",
-      "region": "cn-sh",
-      "zone": "az1",
-      "cluster_id": "100",
-      "target_kind": "service_instance",
-      "__scheme__": "http",
-      "__metrics_path__": "/metrics"
-    }
-  }
-]
-```
-
-建议实例在注册时显式暴露一个 `metrics` 端点，例如：
+统一响应格式如下，便于 SDK 和控制台处理：
 
 ```json
 {
-  "namespace": "prod",
-  "service": "order-service",
-  "instanceId": "order-1",
-  "endpoints": [
-    {
-      "name": "http",
-      "protocol": "http",
-      "host": "10.0.0.11",
-      "port": 8080
-    },
-    {
-      "name": "metrics",
-      "protocol": "http",
-      "host": "10.0.0.11",
-      "port": 9090,
-      "path": "/metrics"
-    }
-  ]
-}
-```
-
-Prometheus 最小配置示例：
-
-```yaml
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: starmap-services
-    http_sd_configs:
-      - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics
-        refresh_interval: 30s
-        authorization:
-          type: Bearer
-          credentials: starmap
-```
-
-如果你也希望 Prometheus 同时采集 StarMap 自身指标，可以直接开启 `includeSelf=true`：
-
-```yaml
-scrape_configs:
-  - job_name: starmap-all
-    http_sd_configs:
-      - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics&includeSelf=true
-        refresh_interval: 30s
-        authorization:
-          type: Bearer
-          credentials: starmap
-```
-
-Grafana 最小接入方式：
-
-1. 在 Grafana 中添加一个 `Prometheus` 数据源
-2. 数据源地址指向你的 Prometheus，例如 `http://prometheus:9090`
-3. 之后直接在面板里按 `service`、`namespace`、`target_kind` 等标签做查询和分组
-
-### HTTP 返回模型建议
-
-建议统一响应格式，便于 SDK 和控制台处理：
-
-```json
-{
-  "code": "OK",
+  "code": "ok",
   "message": "",
   "data": {},
   "requestId": "01HR..."
 }
 ```
 
-建议错误码至少覆盖：
+典型返回码包括：
 
-- `OK`
-- `NOT_LEADER`
-- `KEY_NOT_FOUND`
-- `INVALID_ARGUMENT`
-- `CONFLICT`
-- `TIMEOUT`
-- `INTERNAL_ERROR`
-- `CLUSTER_UNAVAILABLE`
+- `ok`
+- `bad_request`
+- `not_found`
+- `not_ready`
+- `not_leader`
+- `unauthorized`
+- `forbidden`
+- `read_failed`
+- `scan_failed`
+- `propose_failed`
+- `conf_change_failed`
+
+例外说明：
+
+- `/api/v1/registry/watch` 和 `/internal/v1/replication/watch` 返回 `text/event-stream`
+- `/internal/v1/prometheus/sd` 直接返回 Prometheus 需要的 target group JSON，不包裹统一响应结构
 
 ## 崩溃恢复模板
 
-建议把恢复流程进一步固化成实现清单，后续每个版本都按这个模板自检。
+恢复流程可以进一步固化成实现清单，后续每个版本都按这个模板自检。
 
 ### 恢复主流程模板
 
@@ -1037,7 +962,7 @@ Grafana 最小接入方式：
 
 ## 测试用例清单模板
 
-建议后续在 `tests/` 下按这个模板维护用例矩阵。
+后续可以在 `tests/` 下按这个模板维护用例矩阵。
 
 ### 1. 一致性测试模板
 
@@ -1071,7 +996,7 @@ Grafana 最小接入方式：
 | `LOAD-002` | 心跳续约压测 | QPS、P99、compaction 频率 | 高频 `Heartbeat` | 无明显写放大失控 |
 | `LOAD-003` | 服务发现查询压测 | scan latency、heap | 大量 `QueryInstances` / `Watch` | 读延迟可控，无明显内存泄漏 |
 
-### 5. 自动化执行建议
+### 5. 自动化执行
 
 - `tests/integration`：跑基础功能回归
 - `tests/consistency`：跑线性一致、主切换、读写时序验证
