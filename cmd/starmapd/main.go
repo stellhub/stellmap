@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	daemonapp "github.com/chenwenlong-java/StarMap/internal/app"
+	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
 	"github.com/chenwenlong-java/StarMap/internal/raftnode"
 	"github.com/chenwenlong-java/StarMap/internal/registry"
 	"github.com/chenwenlong-java/StarMap/internal/replication"
@@ -123,26 +124,30 @@ func newServerApp(cfg daemonConfig) (*serverApp, error) {
 
 	internalService := runtime.NewInternalTransportService(node, snapshot.NewFileStore(filepath.Join(validated.DataDir, "snapshot")))
 	grpcServer := grpc.NewServer()
-	grpctransport.NewServer(internalService).RegisterHandlers(grpcServer)
 
 	peerTransport := runtime.NewPeerTransport(validated.NodeID, book, runtime.DefaultSnapshotChunk)
 	watchHub := registry.NewWatchHub()
 	replicationTracker := replication.NewTracker()
+	transportMetrics := internalmetrics.NewTransportMetrics()
+	registryMetrics := internalmetrics.NewRegistryMetrics(node)
 	metricsRegistry := prometheus.NewRegistry()
 	_ = metricsRegistry.Register(collectors.NewGoCollector())
 	_ = metricsRegistry.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	_ = metricsRegistry.Register(replication.NewCollector(replicationTracker))
+	_ = transportMetrics.Register(metricsRegistry)
+	_ = registryMetrics.Register(metricsRegistry)
 	metricsHandler := promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{})
-	registryHandler := httptransport.NewRegistryHandler(node, validated.HTTPAddr, book, watchHub, validated.Region, fmt.Sprintf("%d", validated.ClusterID), validated.ReplicationToken, validated.PrometheusSDToken, validated.RequestTimeout)
+	grpctransport.NewServer(internalService).WithMetrics(transportMetrics.GRPC()).RegisterHandlers(grpcServer)
+	registryHandler := httptransport.NewRegistryHandler(node, validated.HTTPAddr, book, watchHub, validated.Region, fmt.Sprintf("%d", validated.ClusterID), validated.ReplicationToken, validated.PrometheusSDToken, validated.RequestTimeout).WithRegistryMetrics(registryMetrics)
 	health := httptransport.NewHealthHandler(node, validated.HTTPAddr, book, replicationTracker, metricsHandler)
 	control := httptransport.NewControlHandler(node, validated.ClusterID, validated.AdminAddr, book, peerTransport, replicationTracker, validated.RequestTimeout)
 	httpServer := &http.Server{
 		Addr:    validated.HTTPAddr,
-		Handler: httptransport.NewPublicServer(registryHandler, health).Handler(),
+		Handler: httptransport.NewPublicServer(registryHandler, health).WithMetrics(transportMetrics.HTTP()).Handler(),
 	}
 	adminServer := &http.Server{
 		Addr:    validated.AdminAddr,
-		Handler: adminAuthMiddleware(validated.AdminToken, httptransport.NewAdminServer(control).Handler()),
+		Handler: adminAuthMiddleware(validated.AdminToken, httptransport.NewAdminServer(control).WithMetrics(transportMetrics.HTTP()).Handler()),
 	}
 
 	return daemonapp.New(validated, daemonapp.Components{

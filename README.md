@@ -70,6 +70,13 @@
 - 对外语义：调用方按“注册实例、查询候选集、续约、watch 变化”来使用系统
 - 对内实现：底层仍然会编码成稳定的键值记录，便于复制、恢复和快照
 
+其中：
+
+- `namespace` 负责隔离环境、租户或区域边界
+- `service` 是规范化后的完整服务名
+- 完整服务名支持多层级组织结构：`organization.businessDomain.capabilityDomain.application.role`
+- 结构化字段和规范化服务名同时保留，便于做前缀订阅、权限治理和监控聚合
+
 这种设计便于：
 
 - 直接映射到 Raft 提交后的实例变更 apply 流程
@@ -665,6 +672,7 @@ scrape_configs:
 当前注册中心把“一个实例”建模为：
 
 - 稳定身份：`namespace`、`service`、`instanceId`
+- 结构化服务标识：`organization`、`businessDomain`、`capabilityDomain`、`application`、`role`
 - 实例属性：`zone`、`labels`、`metadata`
 - 协议入口：`endpoints[]`
 - 租约属性：`leaseTtlSeconds`
@@ -672,7 +680,12 @@ scrape_configs:
 字段约定：
 
 - `namespace`：稳定业务隔离域，例如 `prod`、`staging`、`tenant-a`
-- `service`：服务名，例如 `order-service`
+- `service`：规范化服务名，例如 `company.trade.order.order-center.api`
+- `organization`：组织标识，例如 `company`
+- `businessDomain`：业务域，例如 `trade`
+- `capabilityDomain`：能力域，例如 `order`
+- `application`：应用名，例如 `order-center`
+- `role`：应用角色，例如 `api`、`worker`
 - `instanceId`：实例唯一标识
 - `zone`：实例所在可用区，例如 `az1`
 - `labels`：低基数治理标签，例如 `color=gray`、`version=v2`
@@ -684,13 +697,25 @@ scrape_configs:
 - `endpoints[].weight`：端点权重；未显式填写时，服务端默认补为 `100`
 - `leaseTtlSeconds`：实例租约 TTL；未显式填写或填写 `0` 时，服务端默认补为 `30`
 
+多层级服务标识约定：
+
+- `service` 与 `organization.businessDomain.capabilityDomain.application.role` 必须一致
+- 如果请求体里未显式填写 `service`，服务端会根据五段结构化字段自动组合出规范化服务名
+- 如果只传了 `service`，服务端会反向解析结构化字段
+- 五段结构必须完整；不支持跳层，例如只传 `organization` 和 `application`
+
 注册请求示例：
 
 ```json
 {
   "namespace": "prod",
-  "service": "order-service",
-  "instanceId": "order-10.0.1.23",
+  "organization": "company",
+  "businessDomain": "trade",
+  "capabilityDomain": "order",
+  "application": "order-center",
+  "role": "api",
+  "service": "company.trade.order.order-center.api",
+  "instanceId": "order-center-api-10.0.1.23",
   "zone": "az1",
   "labels": {
     "color": "gray",
@@ -733,8 +758,8 @@ scrape_configs:
 ```json
 {
   "namespace": "prod",
-  "service": "order-service",
-  "instanceId": "order-10.0.1.23",
+  "service": "company.trade.order.order-center.api",
+  "instanceId": "order-center-api-10.0.1.23",
   "leaseTtlSeconds": 30
 }
 ```
@@ -742,13 +767,17 @@ scrape_configs:
 实例查询示例：
 
 ```text
-GET /api/v1/registry/instances?namespace=prod&service=order-service&zone=az1&endpoint=http&selector=color=gray,version%20in%20(v2),!deprecated
+GET /api/v1/registry/instances?namespace=prod&service=company.trade.order.order-center.api&zone=az1&endpoint=http&selector=color=gray,version%20in%20(v2),!deprecated
+GET /api/v1/registry/instances?namespace=prod&servicePrefix=company.trade.order&endpoint=http
+GET /api/v1/registry/instances?namespace=prod&organization=company&businessDomain=trade&capabilityDomain=order
 ```
 
 实例 watch 示例：
 
 ```text
-GET /api/v1/registry/watch?namespace=prod&service=order-service&selector=color=gray,version%20in%20(v2)
+GET /api/v1/registry/watch?namespace=prod&service=company.trade.order.order-center.api&selector=color=gray,version%20in%20(v2)
+GET /api/v1/registry/watch?namespace=prod&servicePrefix=company.trade.order&includeSnapshot=true
+GET /api/v1/registry/watch?namespace=prod&servicePrefix=company.trade.order&sinceRevision=1024&includeSnapshot=false
 ```
 
 watch 约定：
@@ -758,10 +787,17 @@ watch 约定：
 - 后续实例新增或更新时推送 `upsert`
 - 后续实例删除或不再满足当前筛选条件时推送 `delete`
 - 每条事件都带 `revision`，对应底层已提交日志索引
+- `sinceRevision` 表示客户端已经成功处理到的最后一个目录版本号；服务端会尽量回放这个版本之后仍在本地缓冲窗口内的增量事件
+- `includeSnapshot=true` 时，如果 `sinceRevision` 不可恢复或首次建连，服务端会先下发一次 `snapshot`
+- `includeSnapshot=false` 且 `sinceRevision` 已经超出本地保留窗口时，服务端返回 `410 revision_expired`
+- 对 watch 来说，`revision` 的意义是事件流恢复游标，不是大文件断点续传
 
 查询约定：
 
-- `namespace`、`service`：必填
+- `namespace`：必填
+- `service`：可选，表示一个规范化完整服务名；可重复传多个 `service`
+- `servicePrefix`：可选，可重复；用于匹配规范化服务名的前缀，例如 `company.trade.order`
+- `organization`、`businessDomain`、`capabilityDomain`、`application`、`role`：可选；如果五段都给齐，会等价为一个精确 `service`，如果只给连续前缀段，会自动转成一个 `servicePrefix`
 - `zone`：可选
 - `endpoint`：可选，兼容端点名或协议名匹配
 - `selector`：可选，支持 `key`、`!key`、`key=value`、`key!=value`、`key in (v1,v2)`、`key notin (v1,v2)`
@@ -778,9 +814,9 @@ watch 约定：
 示例：
 
 ```text
-GET /api/v1/registry/instances?namespace=prod&service=order-service&selector=color=gray,version%20in%20(v2),!deprecated
-GET /api/v1/registry/instances?namespace=prod&service=order-service&selector=env%20in%20(prod,staging)&selector=tier=core
-GET /api/v1/registry/instances?namespace=prod&service=order-service&label=color=gray&label=version=v2
+GET /api/v1/registry/instances?namespace=prod&service=company.trade.order.order-center.api&selector=color=gray,version%20in%20(v2),!deprecated
+GET /api/v1/registry/instances?namespace=prod&servicePrefix=company.trade.order&selector=env%20in%20(prod,staging)&selector=tier=core
+GET /api/v1/registry/instances?namespace=prod&organization=company&businessDomain=trade&capabilityDomain=order&label=color=gray&label=version=v2
 ```
 
 常见错误示例：

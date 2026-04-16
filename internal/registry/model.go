@@ -28,14 +28,19 @@ type Endpoint struct {
 
 // RegisterInput 表示注册中心领域层使用的注册输入。
 type RegisterInput struct {
-	Namespace       string
-	Service         string
-	InstanceID      string
-	Zone            string
-	Labels          map[string]string
-	Metadata        map[string]string
-	Endpoints       []Endpoint
-	LeaseTTLSeconds int64
+	Namespace        string
+	Service          string
+	Organization     string
+	BusinessDomain   string
+	CapabilityDomain string
+	Application      string
+	Role             string
+	InstanceID       string
+	Zone             string
+	Labels           map[string]string
+	Metadata         map[string]string
+	Endpoints        []Endpoint
+	LeaseTTLSeconds  int64
 }
 
 // RegisterRequest 是面向传输层暴露的注册请求别名。
@@ -43,23 +48,38 @@ type RegisterRequest = RegisterInput
 
 // DeregisterRequest 表示实例注销请求。
 type DeregisterRequest struct {
-	Namespace  string `json:"namespace"`
-	Service    string `json:"service"`
-	InstanceID string `json:"instanceId"`
+	Namespace        string `json:"namespace"`
+	Service          string `json:"service"`
+	Organization     string `json:"organization,omitempty"`
+	BusinessDomain   string `json:"businessDomain,omitempty"`
+	CapabilityDomain string `json:"capabilityDomain,omitempty"`
+	Application      string `json:"application,omitempty"`
+	Role             string `json:"role,omitempty"`
+	InstanceID       string `json:"instanceId"`
 }
 
 // HeartbeatRequest 表示实例续约请求。
 type HeartbeatRequest struct {
-	Namespace       string `json:"namespace"`
-	Service         string `json:"service"`
-	InstanceID      string `json:"instanceId"`
-	LeaseTTLSeconds int64  `json:"leaseTtlSeconds"`
+	Namespace        string `json:"namespace"`
+	Service          string `json:"service"`
+	Organization     string `json:"organization,omitempty"`
+	BusinessDomain   string `json:"businessDomain,omitempty"`
+	CapabilityDomain string `json:"capabilityDomain,omitempty"`
+	Application      string `json:"application,omitempty"`
+	Role             string `json:"role,omitempty"`
+	InstanceID       string `json:"instanceId"`
+	LeaseTTLSeconds  int64  `json:"leaseTtlSeconds"`
 }
 
 // Value 是注册中心写入状态机的实例值。
 type Value struct {
 	Namespace         string            `json:"namespace"`
 	Service           string            `json:"service"`
+	Organization      string            `json:"organization,omitempty"`
+	BusinessDomain    string            `json:"businessDomain,omitempty"`
+	CapabilityDomain  string            `json:"capabilityDomain,omitempty"`
+	Application       string            `json:"application,omitempty"`
+	Role              string            `json:"role,omitempty"`
 	InstanceID        string            `json:"instanceId"`
 	Zone              string            `json:"zone,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
@@ -72,12 +92,14 @@ type Value struct {
 
 // Query 描述一次实例查询的过滤条件。
 type Query struct {
-	Namespace string
-	Service   string
-	Zone      string
-	Endpoint  string
-	Selector  Selector
-	Limit     int
+	Namespace       string
+	Service         string
+	Services        []string
+	ServicePrefixes []string
+	Zone            string
+	Endpoint        string
+	Selector        Selector
+	Limit           int
 }
 
 // MatchQuery 判断实例是否满足查询过滤条件。
@@ -85,7 +107,7 @@ func MatchQuery(value Value, query Query) bool {
 	if query.Namespace != "" && value.Namespace != query.Namespace {
 		return false
 	}
-	if query.Service != "" && value.Service != query.Service {
+	if !MatchServiceQuery(value.Service, query) {
 		return false
 	}
 	if query.Zone != "" && value.Zone != query.Zone {
@@ -101,6 +123,36 @@ func MatchQuery(value Value, query Query) bool {
 	return true
 }
 
+// ComposeServiceName 组合多层级服务标识为规范化服务名。
+func ComposeServiceName(organization, businessDomain, capabilityDomain, application, role string) string {
+	parts := []string{
+		strings.TrimSpace(organization),
+		strings.TrimSpace(businessDomain),
+		strings.TrimSpace(capabilityDomain),
+		strings.TrimSpace(application),
+		strings.TrimSpace(role),
+	}
+	return strings.Join(parts, ".")
+}
+
+// ParseServiceName 解析规范化服务名。
+func ParseServiceName(service string) (organization, businessDomain, capabilityDomain, application, role string, ok bool) {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return "", "", "", "", "", false
+	}
+	parts := strings.Split(service, ".")
+	if len(parts) != 5 {
+		return "", "", "", "", "", false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return "", "", "", "", "", false
+		}
+	}
+	return parts[0], parts[1], parts[2], parts[3], parts[4], true
+}
+
 // NormalizeInstanceIdentity 统一清理注册中心实例身份字段两端的空白字符。
 func NormalizeInstanceIdentity(namespace, service, instanceID *string) {
 	*namespace = strings.TrimSpace(*namespace)
@@ -111,7 +163,16 @@ func NormalizeInstanceIdentity(namespace, service, instanceID *string) {
 // NormalizeRegisterInput 规范化并校验注册输入。
 func NormalizeRegisterInput(request *RegisterInput) error {
 	request.Namespace = strings.TrimSpace(request.Namespace)
-	request.Service = strings.TrimSpace(request.Service)
+	if err := NormalizeStructuredServiceIdentity(
+		&request.Service,
+		&request.Organization,
+		&request.BusinessDomain,
+		&request.CapabilityDomain,
+		&request.Application,
+		&request.Role,
+	); err != nil {
+		return err
+	}
 	request.InstanceID = strings.TrimSpace(request.InstanceID)
 	request.Zone = strings.TrimSpace(request.Zone)
 	request.Labels = CloneStringMap(request.Labels)
@@ -172,6 +233,11 @@ func NewValue(request RegisterInput, now int64) Value {
 	return Value{
 		Namespace:         request.Namespace,
 		Service:           request.Service,
+		Organization:      request.Organization,
+		BusinessDomain:    request.BusinessDomain,
+		CapabilityDomain:  request.CapabilityDomain,
+		Application:       request.Application,
+		Role:              request.Role,
 		InstanceID:        request.InstanceID,
 		Zone:              request.Zone,
 		Labels:            CloneStringMap(request.Labels),
@@ -233,8 +299,16 @@ func ParseQuery(values url.Values) (Query, error) {
 		Zone:      strings.TrimSpace(values.Get("zone")),
 		Endpoint:  strings.TrimSpace(values.Get("endpoint")),
 	}
-	if query.Namespace == "" || query.Service == "" {
-		return Query{}, fmt.Errorf("namespace and service are required")
+	if query.Namespace == "" {
+		return Query{}, fmt.Errorf("namespace is required")
+	}
+	query.Services = normalizeStringSlice(values["service"])
+	if len(query.Services) == 1 {
+		query.Service = query.Services[0]
+	}
+	query.ServicePrefixes = normalizeStringSlice(values["servicePrefix"])
+	if err := normalizeQueryServiceIdentity(values, &query); err != nil {
+		return Query{}, err
 	}
 
 	limit, err := parseLimit(values.Get("limit"))
@@ -278,6 +352,11 @@ func FilterEndpoints(endpoints []Endpoint, expected string) []Endpoint {
 // ServicePrefix 返回某个 namespace/service 下所有实例的公共 key 前缀。
 func ServicePrefix(namespace, service string) string {
 	return fmt.Sprintf("%s%s/%s/", RootPrefix, namespace, service)
+}
+
+// NamespacePrefix 返回某个 namespace 下所有实例的公共 key 前缀。
+func NamespacePrefix(namespace string) string {
+	return fmt.Sprintf("%s%s/", RootPrefix, strings.TrimSpace(namespace))
 }
 
 // Key 生成注册中心实例在状态机中的 KV key。
@@ -343,4 +422,225 @@ func parseLimit(raw string) (int, error) {
 	}
 
 	return limit, nil
+}
+
+// NormalizeStructuredServiceIdentity 规范化多层级服务标识，并计算规范化服务名。
+func NormalizeStructuredServiceIdentity(service, organization, businessDomain, capabilityDomain, application, role *string) error {
+	*service = strings.TrimSpace(*service)
+	*organization = strings.TrimSpace(*organization)
+	*businessDomain = strings.TrimSpace(*businessDomain)
+	*capabilityDomain = strings.TrimSpace(*capabilityDomain)
+	*application = strings.TrimSpace(*application)
+	*role = strings.TrimSpace(*role)
+
+	if *service != "" {
+		parsedOrganization, parsedBusinessDomain, parsedCapabilityDomain, parsedApplication, parsedRole, _ := ParseServiceName(*service)
+		if *organization == "" {
+			*organization = parsedOrganization
+		}
+		if *businessDomain == "" {
+			*businessDomain = parsedBusinessDomain
+		}
+		if *capabilityDomain == "" {
+			*capabilityDomain = parsedCapabilityDomain
+		}
+		if *application == "" {
+			*application = parsedApplication
+		}
+		if *role == "" {
+			*role = parsedRole
+		}
+		if !hasAnyServiceDimension(*organization, *businessDomain, *capabilityDomain, *application, *role) {
+			return nil
+		}
+	}
+
+	if !hasAnyServiceDimension(*organization, *businessDomain, *capabilityDomain, *application, *role) {
+		if *service == "" {
+			return fmt.Errorf("service is required")
+		}
+		return nil
+	}
+	if !hasAllServiceDimensions(*organization, *businessDomain, *capabilityDomain, *application, *role) {
+		return fmt.Errorf("organization, businessDomain, capabilityDomain, application and role are required")
+	}
+
+	canonical := ComposeServiceName(*organization, *businessDomain, *capabilityDomain, *application, *role)
+	if *service == "" {
+		*service = canonical
+		return nil
+	}
+	if *service != canonical {
+		return fmt.Errorf("service %q does not match structured service identity %q", *service, canonical)
+	}
+	return nil
+}
+
+func normalizeQueryServiceIdentity(values url.Values, query *Query) error {
+	service := query.Service
+	organization := strings.TrimSpace(values.Get("organization"))
+	businessDomain := strings.TrimSpace(values.Get("businessDomain"))
+	capabilityDomain := strings.TrimSpace(values.Get("capabilityDomain"))
+	application := strings.TrimSpace(values.Get("application"))
+	role := strings.TrimSpace(values.Get("role"))
+
+	if service != "" {
+		parsedOrganization, parsedBusinessDomain, parsedCapabilityDomain, parsedApplication, parsedRole, _ := ParseServiceName(service)
+		if organization == "" {
+			organization = parsedOrganization
+		}
+		if businessDomain == "" {
+			businessDomain = parsedBusinessDomain
+		}
+		if capabilityDomain == "" {
+			capabilityDomain = parsedCapabilityDomain
+		}
+		if application == "" {
+			application = parsedApplication
+		}
+		if role == "" {
+			role = parsedRole
+		}
+	}
+
+	if !hasAnyServiceDimension(organization, businessDomain, capabilityDomain, application, role) {
+		return nil
+	}
+	if hasGapInServiceDimensions(organization, businessDomain, capabilityDomain, application, role) {
+		return fmt.Errorf("service hierarchy filters must be contiguous from organization to role")
+	}
+	if hasAllServiceDimensions(organization, businessDomain, capabilityDomain, application, role) {
+		canonical := ComposeServiceName(organization, businessDomain, capabilityDomain, application, role)
+		if service != "" && service != canonical {
+			return fmt.Errorf("service %q does not match structured service identity %q", service, canonical)
+		}
+		query.Service = canonical
+		query.Services = appendUniqueString(query.Services, canonical)
+		return nil
+	}
+
+	prefix := strings.Join(serviceHierarchyDimensions(organization, businessDomain, capabilityDomain, application, role), ".")
+	if prefix != "" {
+		query.ServicePrefixes = appendUniqueString(query.ServicePrefixes, prefix)
+	}
+	return nil
+}
+
+// MatchServiceQuery 判断服务名是否满足查询中的精确值或前缀过滤条件。
+func MatchServiceQuery(service string, query Query) bool {
+	service = strings.TrimSpace(service)
+	if query.Service != "" && service != query.Service {
+		return false
+	}
+	if len(query.Services) > 0 {
+		matched := false
+		for _, expected := range query.Services {
+			if service == expected {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if len(query.ServicePrefixes) > 0 {
+		matched := false
+		for _, prefix := range query.ServicePrefixes {
+			if service == prefix || strings.HasPrefix(service, prefix+".") || strings.HasPrefix(service, prefix) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func hasAnyServiceDimension(values ...string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAllServiceDimensions(values ...string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return false
+		}
+	}
+	return len(values) > 0
+}
+
+func hasGapInServiceDimensions(values ...string) bool {
+	seenEmpty := false
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			seenEmpty = true
+			continue
+		}
+		if seenEmpty {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceHierarchyDimensions(organization, businessDomain, capabilityDomain, application, role string) []string {
+	values := []string{
+		strings.TrimSpace(organization),
+		strings.TrimSpace(businessDomain),
+		strings.TrimSpace(capabilityDomain),
+		strings.TrimSpace(application),
+		strings.TrimSpace(role),
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			break
+		}
+		result = append(result, value)
+	}
+	return result
 }

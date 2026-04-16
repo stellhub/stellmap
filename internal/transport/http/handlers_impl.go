@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
 	"github.com/chenwenlong-java/StarMap/internal/raftnode"
 	"github.com/chenwenlong-java/StarMap/internal/registry"
 	"github.com/chenwenlong-java/StarMap/internal/replication"
@@ -21,15 +22,24 @@ import (
 
 // RegistryAPI 实现对外 HTTP 数据面。
 type RegistryAPI struct {
-	node          *raftnode.RaftNode
-	httpAddr      string
-	book          *runtime.AddressBook
-	watchHub      *registry.WatchHub
-	sourceRegion  string
-	sourceCluster string
-	replicateAuth string
-	promSDAuth    string
-	requestTimout time.Duration
+	node            registryNode
+	httpAddr        string
+	book            *runtime.AddressBook
+	watchHub        *registry.WatchHub
+	sourceRegion    string
+	sourceCluster   string
+	replicateAuth   string
+	promSDAuth      string
+	requestTimout   time.Duration
+	registryMetrics *internalmetrics.RegistryMetrics
+}
+
+type registryNode interface {
+	ProposeCommand(ctx context.Context, cmd storage.Command) error
+	LinearizableRead(ctx context.Context, reqCtx []byte) error
+	Get(ctx context.Context, key []byte) ([]byte, error)
+	Scan(ctx context.Context, start, end []byte, limit int) ([]storage.KV, error)
+	Status() raftnode.Status
 }
 
 // HealthAPI 实现对外健康检查。
@@ -65,6 +75,15 @@ func NewRegistryHandler(node *raftnode.RaftNode, httpAddr string, book *runtime.
 		promSDAuth:    prometheusSDToken,
 		requestTimout: requestTimeout,
 	}
+}
+
+// WithRegistryMetrics 为注册中心 HTTP handler 增加客户端画像和 watch 治理指标。
+func (h *RegistryAPI) WithRegistryMetrics(metrics *internalmetrics.RegistryMetrics) *RegistryAPI {
+	if h == nil {
+		return nil
+	}
+	h.registryMetrics = metrics
+	return h
 }
 
 // NewHealthHandler 创建健康检查 handler。
@@ -103,7 +122,6 @@ func (h *RegistryAPI) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input := registryRegisterInputFromDTO(request)
-	registry.NormalizeInstanceIdentity(&input.Namespace, &input.Service, &input.InstanceID)
 	if err := registry.NormalizeRegisterInput(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
@@ -112,13 +130,19 @@ func (h *RegistryAPI) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "namespace, service and instanceId are required")
 		return
 	}
+	statusCode := http.StatusOK
+	defer func() {
+		h.observeRegisterRequestMetrics(registryIdentityFromRegisterInput(input), statusCode)
+	}()
 	if !h.ensureWritable(w) {
+		statusCode = http.StatusServiceUnavailable
 		return
 	}
 
 	now := time.Now().Unix()
 	value, err := json.Marshal(registry.NewValue(input, now))
 	if err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "marshal_failed", err.Error())
 		return
 	}
@@ -128,6 +152,7 @@ func (h *RegistryAPI) Register(w http.ResponseWriter, r *http.Request) {
 		Key:       registry.Key(input.Namespace, input.Service, input.InstanceID),
 		Value:     value,
 	}); err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
@@ -156,12 +181,29 @@ func (h *RegistryAPI) Deregister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	registry.NormalizeInstanceIdentity(&request.Namespace, &request.Service, &request.InstanceID)
+	request.Namespace = strings.TrimSpace(request.Namespace)
+	request.InstanceID = strings.TrimSpace(request.InstanceID)
+	if err := registry.NormalizeStructuredServiceIdentity(
+		&request.Service,
+		&request.Organization,
+		&request.BusinessDomain,
+		&request.CapabilityDomain,
+		&request.Application,
+		&request.Role,
+	); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
 	if request.Namespace == "" || request.Service == "" || request.InstanceID == "" {
 		writeError(w, http.StatusBadRequest, "bad_request", "namespace, service and instanceId are required")
 		return
 	}
+	statusCode := http.StatusOK
+	defer func() {
+		h.observeDeregisterRequestMetrics(registryIdentityFromDeregisterRequest(request), statusCode)
+	}()
 	if !h.ensureWritable(w) {
+		statusCode = http.StatusServiceUnavailable
 		return
 	}
 
@@ -169,6 +211,7 @@ func (h *RegistryAPI) Deregister(w http.ResponseWriter, r *http.Request) {
 		Operation: storage.OperationDelete,
 		Key:       registry.Key(request.Namespace, request.Service, request.InstanceID),
 	}); err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
@@ -197,7 +240,19 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	registry.NormalizeInstanceIdentity(&request.Namespace, &request.Service, &request.InstanceID)
+	request.Namespace = strings.TrimSpace(request.Namespace)
+	request.InstanceID = strings.TrimSpace(request.InstanceID)
+	if err := registry.NormalizeStructuredServiceIdentity(
+		&request.Service,
+		&request.Organization,
+		&request.BusinessDomain,
+		&request.CapabilityDomain,
+		&request.Application,
+		&request.Role,
+	); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
 	if request.Namespace == "" || request.Service == "" || request.InstanceID == "" {
 		writeError(w, http.StatusBadRequest, "bad_request", "namespace, service and instanceId are required")
 		return
@@ -206,7 +261,12 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "leaseTtlSeconds must be greater than or equal to 0")
 		return
 	}
+	statusCode := http.StatusOK
+	defer func() {
+		h.observeHeartbeatRequestMetrics(registryIdentityFromHeartbeatRequest(request), statusCode)
+	}()
 	if !h.ensureWritable(w) {
+		statusCode = http.StatusServiceUnavailable
 		return
 	}
 
@@ -216,16 +276,19 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	current, err := h.node.Get(ctx, key)
 	if err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "read_failed", err.Error())
 		return
 	}
 	if len(current) == 0 {
+		statusCode = http.StatusNotFound
 		writeError(w, http.StatusNotFound, "not_found", "instance not found")
 		return
 	}
 
 	var existing registry.Value
 	if err := json.Unmarshal(current, &existing); err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "unmarshal_failed", err.Error())
 		return
 	}
@@ -238,6 +301,7 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	value, err := json.Marshal(existing)
 	if err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "marshal_failed", err.Error())
 		return
 	}
@@ -246,6 +310,7 @@ func (h *RegistryAPI) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		Key:       key,
 		Value:     value,
 	}); err != nil {
+		statusCode = http.StatusInternalServerError
 		writeError(w, http.StatusInternalServerError, "propose_failed", err.Error())
 		return
 	}
@@ -276,7 +341,11 @@ func (h *RegistryAPI) QueryInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start, end := prefixRange(registry.ServicePrefix(query.Namespace, query.Service))
+	scanPrefix := registry.NamespacePrefix(query.Namespace)
+	if query.Service != "" && len(query.Services) <= 1 && len(query.ServicePrefixes) == 0 {
+		scanPrefix = registry.ServicePrefix(query.Namespace, query.Service)
+	}
+	start, end := prefixRange(scanPrefix)
 	ctx, cancel := context.WithTimeout(r.Context(), h.requestTimout)
 	defer cancel()
 
@@ -329,6 +398,24 @@ func (h *RegistryAPI) WatchInstances(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	caller, err := parseRegistryCallerIdentity(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	sinceRevision, err := parseSinceRevision(r.URL.Query().Get("sinceRevision"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	includeSnapshot := true
+	if raw := strings.TrimSpace(r.URL.Query().Get("includeSnapshot")); raw != "" {
+		includeSnapshot, err = strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("invalid includeSnapshot %q", raw))
+			return
+		}
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -336,28 +423,50 @@ func (h *RegistryAPI) WatchInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, events, unsubscribe := h.watchHub.Subscribe(128)
+	_, events, replay, exact, unsubscribe := h.watchHub.SubscribeSince(128, sinceRevision)
 	defer unsubscribe()
-
-	snapshotItems, snapshotRevision, err := h.registryWatchSnapshot(r.Context(), query)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "snapshot_failed", err.Error())
-		return
-	}
+	closeWatchMetrics := h.trackWatchSessionMetrics("instances", caller, registryWatchTargetFromQuery(query))
+	defer closeWatchMetrics()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	if err := writeSSEEvent(w, flusher, snapshotRevision, "snapshot", RegistryWatchEventDTO{
-		Revision:  snapshotRevision,
-		Type:      "snapshot",
-		Namespace: query.Namespace,
-		Service:   query.Service,
-		Instances: snapshotItems,
-	}); err != nil {
+	currentRevision := sinceRevision
+	if sinceRevision > 0 && !exact && !includeSnapshot {
+		writeError(w, http.StatusGone, "revision_expired", "watch revision is no longer retained")
 		return
+	}
+	if sinceRevision == 0 || !exact {
+		if includeSnapshot {
+			snapshotItems, snapshotRevision, err := h.registryWatchSnapshot(r.Context(), query)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "snapshot_failed", err.Error())
+				return
+			}
+			if err := writeSSEEvent(w, flusher, snapshotRevision, "snapshot", RegistryWatchEventDTO{
+				Revision:  snapshotRevision,
+				Type:      "snapshot",
+				Namespace: query.Namespace,
+				Service:   query.Service,
+				Instances: snapshotItems,
+			}); err != nil {
+				return
+			}
+			currentRevision = snapshotRevision
+		}
+	} else {
+		for _, event := range replay {
+			payload, emit := registryWatchEventDTO(query, event)
+			if !emit {
+				continue
+			}
+			if err := writeSSEEvent(w, flusher, event.Revision, payload.Type, payload); err != nil {
+				return
+			}
+			currentRevision = event.Revision
+		}
 	}
 
 	keepaliveTicker := time.NewTicker(30 * time.Second)
@@ -376,7 +485,7 @@ func (h *RegistryAPI) WatchInstances(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if event.Revision <= snapshotRevision {
+			if event.Revision <= currentRevision {
 				continue
 			}
 
@@ -387,6 +496,7 @@ func (h *RegistryAPI) WatchInstances(w http.ResponseWriter, r *http.Request) {
 			if err := writeSSEEvent(w, flusher, event.Revision, payload.Type, payload); err != nil {
 				return
 			}
+			currentRevision = event.Revision
 		}
 	}
 }
@@ -424,6 +534,8 @@ func (h *RegistryAPI) WatchReplication(w http.ResponseWriter, r *http.Request) {
 
 	_, events, replay, exact, unsubscribe := h.watchHub.SubscribeSince(128, sinceRevision)
 	defer unsubscribe()
+	closeWatchMetrics := h.trackWatchSessionMetrics("replication", internalmetrics.RegistryIdentity{}, registryWatchTargetFromQuery(query))
+	defer closeWatchMetrics()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -526,14 +638,19 @@ func (h *RegistryAPI) PrometheusSD(w http.ResponseWriter, r *http.Request) {
 
 func registryRegisterInputFromDTO(request RegisterRequestDTO) registry.RegisterInput {
 	return registry.RegisterInput{
-		Namespace:       request.Namespace,
-		Service:         request.Service,
-		InstanceID:      request.InstanceID,
-		Zone:            request.Zone,
-		Labels:          request.Labels,
-		Metadata:        request.Metadata,
-		Endpoints:       registryEndpointsFromDTO(request.Endpoints),
-		LeaseTTLSeconds: request.LeaseTTLSeconds,
+		Namespace:        request.Namespace,
+		Service:          request.Service,
+		Organization:     request.Organization,
+		BusinessDomain:   request.BusinessDomain,
+		CapabilityDomain: request.CapabilityDomain,
+		Application:      request.Application,
+		Role:             request.Role,
+		InstanceID:       request.InstanceID,
+		Zone:             request.Zone,
+		Labels:           request.Labels,
+		Metadata:         request.Metadata,
+		Endpoints:        registryEndpointsFromDTO(request.Endpoints),
+		LeaseTTLSeconds:  request.LeaseTTLSeconds,
 	}
 }
 
@@ -593,6 +710,11 @@ func registryInstanceDTOFromValue(value registry.Value, query registry.Query, no
 	return RegistryInstanceDTO{
 		Namespace:         value.Namespace,
 		Service:           value.Service,
+		Organization:      value.Organization,
+		BusinessDomain:    value.BusinessDomain,
+		CapabilityDomain:  value.CapabilityDomain,
+		Application:       value.Application,
+		Role:              value.Role,
 		InstanceID:        value.InstanceID,
 		Zone:              value.Zone,
 		Labels:            registry.CloneStringMap(value.Labels),
@@ -605,38 +727,54 @@ func registryInstanceDTOFromValue(value registry.Value, query registry.Query, no
 }
 
 func registryWatchEventDTO(query registry.Query, event registry.WatchEvent) (RegistryWatchEventDTO, bool) {
-	if event.Namespace != query.Namespace || event.Service != query.Service {
+	if event.Namespace != query.Namespace || !registry.MatchServiceQuery(event.Service, query) {
 		return RegistryWatchEventDTO{}, false
 	}
+	organization, businessDomain, capabilityDomain, application, role, _ := registry.ParseServiceName(event.Service)
 
 	switch event.Type {
 	case registry.WatchEventUpsert:
 		if event.Value != nil {
 			if instance, ok := registryInstanceDTOFromValue(*event.Value, query, time.Now().Unix()); ok {
 				return RegistryWatchEventDTO{
-					Revision:   event.Revision,
-					Type:       string(registry.WatchEventUpsert),
-					Namespace:  event.Namespace,
-					Service:    event.Service,
-					InstanceID: event.InstanceID,
-					Instance:   &instance,
+					Revision:         event.Revision,
+					Type:             string(registry.WatchEventUpsert),
+					Namespace:        event.Namespace,
+					Service:          event.Service,
+					Organization:     instance.Organization,
+					BusinessDomain:   instance.BusinessDomain,
+					CapabilityDomain: instance.CapabilityDomain,
+					Application:      instance.Application,
+					Role:             instance.Role,
+					InstanceID:       event.InstanceID,
+					Instance:         &instance,
 				}, true
 			}
 		}
 		return RegistryWatchEventDTO{
-			Revision:   event.Revision,
-			Type:       string(registry.WatchEventDelete),
-			Namespace:  event.Namespace,
-			Service:    event.Service,
-			InstanceID: event.InstanceID,
+			Revision:         event.Revision,
+			Type:             string(registry.WatchEventDelete),
+			Namespace:        event.Namespace,
+			Service:          event.Service,
+			Organization:     organization,
+			BusinessDomain:   businessDomain,
+			CapabilityDomain: capabilityDomain,
+			Application:      application,
+			Role:             role,
+			InstanceID:       event.InstanceID,
 		}, true
 	case registry.WatchEventDelete:
 		return RegistryWatchEventDTO{
-			Revision:   event.Revision,
-			Type:       string(registry.WatchEventDelete),
-			Namespace:  event.Namespace,
-			Service:    event.Service,
-			InstanceID: event.InstanceID,
+			Revision:         event.Revision,
+			Type:             string(registry.WatchEventDelete),
+			Namespace:        event.Namespace,
+			Service:          event.Service,
+			Organization:     organization,
+			BusinessDomain:   businessDomain,
+			CapabilityDomain: capabilityDomain,
+			Application:      application,
+			Role:             role,
+			InstanceID:       event.InstanceID,
 		}, true
 	default:
 		return RegistryWatchEventDTO{}, false
@@ -644,48 +782,64 @@ func registryWatchEventDTO(query registry.Query, event registry.WatchEvent) (Reg
 }
 
 func replicationWatchEventDTO(query registry.Query, sourceRegion, sourceCluster string, event registry.WatchEvent) (ReplicationWatchEventDTO, bool) {
-	if event.Namespace != query.Namespace || event.Service != query.Service {
+	if event.Namespace != query.Namespace || !registry.MatchServiceQuery(event.Service, query) {
 		return ReplicationWatchEventDTO{}, false
 	}
 
 	exportedAtUnix := time.Now().Unix()
+	organization, businessDomain, capabilityDomain, application, role, _ := registry.ParseServiceName(event.Service)
 	switch event.Type {
 	case registry.WatchEventUpsert:
 		if event.Value != nil {
 			if instance, ok := registryInstanceDTOFromValue(*event.Value, query, time.Now().Unix()); ok {
 				return ReplicationWatchEventDTO{
-					Revision:        event.Revision,
-					Type:            string(registry.WatchEventUpsert),
-					Namespace:       event.Namespace,
-					Service:         event.Service,
-					InstanceID:      event.InstanceID,
-					SourceRegion:    sourceRegion,
-					SourceClusterID: sourceCluster,
-					ExportedAtUnix:  exportedAtUnix,
-					Instance:        &instance,
+					Revision:         event.Revision,
+					Type:             string(registry.WatchEventUpsert),
+					Namespace:        event.Namespace,
+					Service:          event.Service,
+					Organization:     instance.Organization,
+					BusinessDomain:   instance.BusinessDomain,
+					CapabilityDomain: instance.CapabilityDomain,
+					Application:      instance.Application,
+					Role:             instance.Role,
+					InstanceID:       event.InstanceID,
+					SourceRegion:     sourceRegion,
+					SourceClusterID:  sourceCluster,
+					ExportedAtUnix:   exportedAtUnix,
+					Instance:         &instance,
 				}, true
 			}
 		}
 		return ReplicationWatchEventDTO{
-			Revision:        event.Revision,
-			Type:            string(registry.WatchEventDelete),
-			Namespace:       event.Namespace,
-			Service:         event.Service,
-			InstanceID:      event.InstanceID,
-			SourceRegion:    sourceRegion,
-			SourceClusterID: sourceCluster,
-			ExportedAtUnix:  exportedAtUnix,
+			Revision:         event.Revision,
+			Type:             string(registry.WatchEventDelete),
+			Namespace:        event.Namespace,
+			Service:          event.Service,
+			Organization:     organization,
+			BusinessDomain:   businessDomain,
+			CapabilityDomain: capabilityDomain,
+			Application:      application,
+			Role:             role,
+			InstanceID:       event.InstanceID,
+			SourceRegion:     sourceRegion,
+			SourceClusterID:  sourceCluster,
+			ExportedAtUnix:   exportedAtUnix,
 		}, true
 	case registry.WatchEventDelete:
 		return ReplicationWatchEventDTO{
-			Revision:        event.Revision,
-			Type:            string(registry.WatchEventDelete),
-			Namespace:       event.Namespace,
-			Service:         event.Service,
-			InstanceID:      event.InstanceID,
-			SourceRegion:    sourceRegion,
-			SourceClusterID: sourceCluster,
-			ExportedAtUnix:  exportedAtUnix,
+			Revision:         event.Revision,
+			Type:             string(registry.WatchEventDelete),
+			Namespace:        event.Namespace,
+			Service:          event.Service,
+			Organization:     organization,
+			BusinessDomain:   businessDomain,
+			CapabilityDomain: capabilityDomain,
+			Application:      application,
+			Role:             role,
+			InstanceID:       event.InstanceID,
+			SourceRegion:     sourceRegion,
+			SourceClusterID:  sourceCluster,
+			ExportedAtUnix:   exportedAtUnix,
 		}, true
 	default:
 		return ReplicationWatchEventDTO{}, false
@@ -701,7 +855,11 @@ func (h *RegistryAPI) registryWatchSnapshot(parent context.Context, query regist
 	}
 	snapshotRevision := h.node.Status().AppliedIndex
 
-	start, end := prefixRange(registry.ServicePrefix(query.Namespace, query.Service))
+	scanPrefix := registry.NamespacePrefix(query.Namespace)
+	if query.Service != "" && len(query.Services) <= 1 && len(query.ServicePrefixes) == 0 {
+		scanPrefix = registry.ServicePrefix(query.Namespace, query.Service)
+	}
+	start, end := prefixRange(scanPrefix)
 	items, err := h.node.Scan(ctx, start, end, 0)
 	if err != nil {
 		return nil, 0, err
@@ -736,7 +894,7 @@ func (h *RegistryAPI) queryReplicatedInstances(ctx context.Context, query regist
 	result := make([]RegistryInstanceDTO, 0)
 	for _, item := range items {
 		_, _, namespace, service, _, ok := registry.ParseReplicatedKey(item.Key)
-		if !ok || namespace != query.Namespace || service != query.Service {
+		if !ok || namespace != query.Namespace || !registry.MatchServiceQuery(service, query) {
 			continue
 		}
 
@@ -1404,6 +1562,155 @@ func (h *ControlAPI) leaderAdminAddr(leaderID uint64) string {
 	}
 
 	return h.book.AdminAddr(leaderID)
+}
+
+func (h *RegistryAPI) observeRegisterRequestMetrics(identity internalmetrics.RegistryIdentity, statusCode int) {
+	if h == nil || h.registryMetrics == nil {
+		return
+	}
+	h.registryMetrics.ObserveRegister(identity, statusCode)
+}
+
+func (h *RegistryAPI) observeHeartbeatRequestMetrics(identity internalmetrics.RegistryIdentity, statusCode int) {
+	if h == nil || h.registryMetrics == nil {
+		return
+	}
+	h.registryMetrics.ObserveHeartbeat(identity, statusCode)
+}
+
+func (h *RegistryAPI) observeDeregisterRequestMetrics(identity internalmetrics.RegistryIdentity, statusCode int) {
+	if h == nil || h.registryMetrics == nil {
+		return
+	}
+	h.registryMetrics.ObserveDeregister(identity, statusCode)
+}
+
+func (h *RegistryAPI) trackWatchSessionMetrics(watchKind string, caller internalmetrics.RegistryIdentity, target internalmetrics.RegistryWatchTarget) func() {
+	if h == nil || h.registryMetrics == nil {
+		return func() {}
+	}
+	return h.registryMetrics.TrackWatchSession(watchKind, caller, target)
+}
+
+func registryIdentityFromRegisterInput(input registry.RegisterInput) internalmetrics.RegistryIdentity {
+	return internalmetrics.RegistryIdentity{
+		Namespace:        input.Namespace,
+		Service:          input.Service,
+		Organization:     input.Organization,
+		BusinessDomain:   input.BusinessDomain,
+		CapabilityDomain: input.CapabilityDomain,
+		Application:      input.Application,
+		Role:             input.Role,
+		Zone:             input.Zone,
+	}
+}
+
+func registryIdentityFromDeregisterRequest(request DeregisterRequestDTO) internalmetrics.RegistryIdentity {
+	return internalmetrics.RegistryIdentity{
+		Namespace:        request.Namespace,
+		Service:          request.Service,
+		Organization:     request.Organization,
+		BusinessDomain:   request.BusinessDomain,
+		CapabilityDomain: request.CapabilityDomain,
+		Application:      request.Application,
+		Role:             request.Role,
+	}
+}
+
+func registryIdentityFromHeartbeatRequest(request HeartbeatRequestDTO) internalmetrics.RegistryIdentity {
+	return internalmetrics.RegistryIdentity{
+		Namespace:        request.Namespace,
+		Service:          request.Service,
+		Organization:     request.Organization,
+		BusinessDomain:   request.BusinessDomain,
+		CapabilityDomain: request.CapabilityDomain,
+		Application:      request.Application,
+		Role:             request.Role,
+	}
+}
+
+func parseRegistryCallerIdentity(r *http.Request) (internalmetrics.RegistryIdentity, error) {
+	if r == nil {
+		return internalmetrics.RegistryIdentity{}, nil
+	}
+
+	values := r.URL.Query()
+	namespace := callerField(values, r.Header, "callerNamespace", "X-StarMap-Caller-Namespace", "X-Caller-Namespace")
+	service := callerField(values, r.Header, "callerService", "X-StarMap-Caller-Service", "X-Caller-Service")
+	organization := callerField(values, r.Header, "callerOrganization", "X-StarMap-Caller-Organization", "X-Caller-Organization")
+	businessDomain := callerField(values, r.Header, "callerBusinessDomain", "X-StarMap-Caller-Business-Domain", "X-Caller-Business-Domain")
+	capabilityDomain := callerField(values, r.Header, "callerCapabilityDomain", "X-StarMap-Caller-Capability-Domain", "X-Caller-Capability-Domain")
+	application := callerField(values, r.Header, "callerApplication", "X-StarMap-Caller-Application", "X-Caller-Application")
+	role := callerField(values, r.Header, "callerRole", "X-StarMap-Caller-Role", "X-Caller-Role")
+
+	namespace = strings.TrimSpace(namespace)
+	service = strings.TrimSpace(service)
+	organization = strings.TrimSpace(organization)
+	businessDomain = strings.TrimSpace(businessDomain)
+	capabilityDomain = strings.TrimSpace(capabilityDomain)
+	application = strings.TrimSpace(application)
+	role = strings.TrimSpace(role)
+
+	if namespace == "" && service == "" && organization == "" && businessDomain == "" && capabilityDomain == "" && application == "" && role == "" {
+		return internalmetrics.RegistryIdentity{}, nil
+	}
+
+	if err := registry.NormalizeStructuredServiceIdentity(
+		&service,
+		&organization,
+		&businessDomain,
+		&capabilityDomain,
+		&application,
+		&role,
+	); err != nil {
+		return internalmetrics.RegistryIdentity{}, fmt.Errorf("invalid caller identity: %w", err)
+	}
+
+	return internalmetrics.RegistryIdentity{
+		Namespace:        namespace,
+		Service:          service,
+		Organization:     organization,
+		BusinessDomain:   businessDomain,
+		CapabilityDomain: capabilityDomain,
+		Application:      application,
+		Role:             role,
+	}, nil
+}
+
+func callerField(values map[string][]string, headers http.Header, queryKey string, headerKeys ...string) string {
+	if value := strings.TrimSpace(firstQueryValue(values, queryKey)); value != "" {
+		return value
+	}
+	for _, key := range headerKeys {
+		if value := strings.TrimSpace(headers.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func registryWatchTargetFromQuery(query registry.Query) internalmetrics.RegistryWatchTarget {
+	target := internalmetrics.RegistryWatchTarget{
+		Namespace: query.Namespace,
+		Scope:     "namespace",
+	}
+
+	switch {
+	case query.Service != "" && len(query.Services) <= 1 && len(query.ServicePrefixes) == 0:
+		target.Scope = "service"
+		target.Service = query.Service
+	case len(query.Services) > 1:
+		target.Scope = "service_set"
+		target.Service = "multiple"
+	case len(query.ServicePrefixes) == 1:
+		target.Scope = "service_prefix"
+		target.Service = query.ServicePrefixes[0]
+	case len(query.ServicePrefixes) > 1:
+		target.Scope = "service_prefix"
+		target.Service = "multiple"
+	}
+
+	return target
 }
 
 func allowMethod(w http.ResponseWriter, r *http.Request, method string) bool {

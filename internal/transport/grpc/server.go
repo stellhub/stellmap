@@ -3,9 +3,20 @@ package grpctransport
 import (
 	"context"
 	"io"
+	"time"
 
 	starmapv1 "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1"
+	"github.com/chenwenlong-java/StarMap/internal/metrics"
 	"google.golang.org/grpc"
+)
+
+const (
+	methodRaftSend         = "/starmap.v1.RaftTransport/Send"
+	methodSnapshotInstall  = "/starmap.v1.SnapshotService/Install"
+	methodSnapshotDownload = "/starmap.v1.SnapshotService/Download"
+	rpcTypeUnary           = "unary"
+	rpcTypeClientStream    = "client_stream"
+	rpcTypeServerStream    = "server_stream"
 )
 
 // Service 描述内部 gRPC 服务端需要实现的领域能力。
@@ -28,6 +39,8 @@ type Service interface {
 type Server struct {
 	// service 是真正处理消息的业务实现。
 	service Service
+	// metrics 用于记录 transport 层 gRPC 指标。
+	metrics *metrics.GRPCServerMetrics
 	// 下面两个嵌入字段用于兼容 protobuf 生成代码的未实现服务接口。
 	starmapv1.UnimplementedRaftTransportServer
 	starmapv1.UnimplementedSnapshotServiceServer
@@ -38,6 +51,15 @@ type Server struct {
 // 调用方通常是 `cmd/starmapd/main.go`，会在创建 grpc.Server 后调用 RegisterHandlers 注册。
 func NewServer(service Service) *Server {
 	return &Server{service: service}
+}
+
+// WithMetrics 为 gRPC 服务端骨架增加轻量 transport 指标。
+func (s *Server) WithMetrics(m *metrics.GRPCServerMetrics) *Server {
+	if s == nil {
+		return nil
+	}
+	s.metrics = m
+	return s
 }
 
 // RegisterHandlers 将内部 transport 的两个 gRPC 服务注册到 grpc.Server 上。
@@ -54,9 +76,16 @@ func (s *Server) RegisterHandlers(server grpc.ServiceRegistrar) {
 //
 // 这是普通 Raft 复制消息的服务端入口。收到 gRPC 请求后，会先把 protobuf 类型转换为
 // 本地 RaftMessageBatch，再交给 service 处理。
-func (s *Server) Send(ctx context.Context, batch *starmapv1.RaftMessageBatch) (*starmapv1.RaftMessageAck, error) {
-	if err := s.service.SendRaftMessages(ctx, fromProtoRaftBatch(batch)); err != nil {
-		return nil, err
+func (s *Server) Send(ctx context.Context, batch *starmapv1.RaftMessageBatch) (_ *starmapv1.RaftMessageAck, retErr error) {
+	done := s.beginRPC(methodRaftSend, rpcTypeUnary)
+	defer done(&retErr)
+
+	request := fromProtoRaftBatch(batch)
+	s.observeRaftBatch(methodRaftSend, request)
+
+	if err := s.service.SendRaftMessages(ctx, request); err != nil {
+		retErr = err
+		return nil, retErr
 	}
 
 	return &starmapv1.RaftMessageAck{}, nil
@@ -66,17 +95,29 @@ func (s *Server) Send(ctx context.Context, batch *starmapv1.RaftMessageBatch) (*
 //
 // 发送端会把一份大快照切成多个 InstallSnapshotChunk 顺序发过来。
 // 服务端这里逐片接收，并把每个 chunk 交给上层 service 聚合和安装。
-func (s *Server) Install(stream starmapv1.SnapshotService_InstallServer) error {
+func (s *Server) Install(stream starmapv1.SnapshotService_InstallServer) (retErr error) {
+	done := s.beginRPC(methodSnapshotInstall, rpcTypeClientStream)
+	defer done(&retErr)
+
+	var chunkCount int
+	var byteCount int
+	defer s.observeSnapshotRecv(methodSnapshotInstall, &chunkCount, &byteCount)
+
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			return stream.SendAndClose(&starmapv1.InstallSnapshotResponse{})
 		}
 		if err != nil {
-			return err
+			retErr = err
+			return retErr
 		}
+
+		chunkCount++
+		byteCount += len(chunk.GetData())
 		if err := s.service.InstallSnapshotChunk(stream.Context(), fromProtoInstallChunk(chunk)); err != nil {
-			return err
+			retErr = err
+			return retErr
 		}
 		if chunk.Eof {
 			return stream.SendAndClose(&starmapv1.InstallSnapshotResponse{
@@ -91,11 +132,16 @@ func (s *Server) Install(stream starmapv1.SnapshotService_InstallServer) error {
 //
 // 当对端需要某份快照时，会发起这个流式 RPC。Server 会先向 service 请求完整 chunk 列表，
 // 再逐片写回给客户端。
-func (s *Server) Download(request *starmapv1.DownloadSnapshotRequest, stream starmapv1.SnapshotService_DownloadServer) error {
+func (s *Server) Download(request *starmapv1.DownloadSnapshotRequest, stream starmapv1.SnapshotService_DownloadServer) (retErr error) {
+	done := s.beginRPC(methodSnapshotDownload, rpcTypeServerStream)
+	defer done(&retErr)
+
 	chunks, err := s.service.DownloadSnapshot(stream.Context(), request.GetTerm(), request.GetIndex())
 	if err != nil {
-		return err
+		retErr = err
+		return retErr
 	}
+	s.observeSnapshotSend(methodSnapshotDownload, chunks)
 
 	for _, chunk := range chunks {
 		if err := stream.Send(&starmapv1.DownloadSnapshotChunk{
@@ -104,9 +150,58 @@ func (s *Server) Download(request *starmapv1.DownloadSnapshotRequest, stream sta
 			Offset:   chunk.Offset,
 			Eof:      chunk.EOF,
 		}); err != nil {
-			return err
+			retErr = err
+			return retErr
 		}
 	}
 
 	return nil
+}
+
+func (s *Server) beginRPC(method, rpcType string) func(*error) {
+	startedAt := time.Now()
+	if s == nil || s.metrics == nil {
+		return func(*error) {}
+	}
+
+	s.metrics.IncInflight(method, rpcType)
+	return func(err *error) {
+		s.metrics.DecInflight(method, rpcType)
+		if err == nil {
+			s.metrics.ObserveRequest(method, rpcType, nil, time.Since(startedAt))
+			return
+		}
+		s.metrics.ObserveRequest(method, rpcType, *err, time.Since(startedAt))
+	}
+}
+
+func (s *Server) observeRaftBatch(method string, batch RaftMessageBatch) {
+	if s == nil || s.metrics == nil {
+		return
+	}
+
+	totalBytes := 0
+	for _, message := range batch.Messages {
+		totalBytes += len(message.Payload)
+	}
+	s.metrics.ObserveRaftBatch(method, len(batch.Messages), totalBytes)
+}
+
+func (s *Server) observeSnapshotRecv(method string, chunkCount *int, byteCount *int) {
+	if s == nil || s.metrics == nil || chunkCount == nil || byteCount == nil {
+		return
+	}
+	s.metrics.ObserveSnapshotRecv(method, *chunkCount, *byteCount)
+}
+
+func (s *Server) observeSnapshotSend(method string, chunks []SnapshotChunk) {
+	if s == nil || s.metrics == nil {
+		return
+	}
+
+	totalBytes := 0
+	for _, chunk := range chunks {
+		totalBytes += len(chunk.Data)
+	}
+	s.metrics.ObserveSnapshotSend(method, len(chunks), totalBytes)
 }

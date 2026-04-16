@@ -20,6 +20,11 @@ const (
 type ReplicatedValue struct {
 	Namespace         string            `json:"namespace"`
 	Service           string            `json:"service"`
+	Organization      string            `json:"organization,omitempty"`
+	BusinessDomain    string            `json:"businessDomain,omitempty"`
+	CapabilityDomain  string            `json:"capabilityDomain,omitempty"`
+	Application       string            `json:"application,omitempty"`
+	Role              string            `json:"role,omitempty"`
 	InstanceID        string            `json:"instanceId"`
 	Zone              string            `json:"zone,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
@@ -130,6 +135,11 @@ func NewReplicatedValue(sourceRegion, sourceClusterID string, sourceRevision uin
 	return ReplicatedValue{
 		Namespace:         value.Namespace,
 		Service:           value.Service,
+		Organization:      value.Organization,
+		BusinessDomain:    value.BusinessDomain,
+		CapabilityDomain:  value.CapabilityDomain,
+		Application:       value.Application,
+		Role:              value.Role,
 		InstanceID:        value.InstanceID,
 		Zone:              value.Zone,
 		Labels:            CloneStringMap(value.Labels),
@@ -151,6 +161,11 @@ func (v ReplicatedValue) ToValue() Value {
 	return Value{
 		Namespace:         v.Namespace,
 		Service:           v.Service,
+		Organization:      v.Organization,
+		BusinessDomain:    v.BusinessDomain,
+		CapabilityDomain:  v.CapabilityDomain,
+		Application:       v.Application,
+		Role:              v.Role,
 		InstanceID:        v.InstanceID,
 		Zone:              v.Zone,
 		Labels:            CloneStringMap(v.Labels),

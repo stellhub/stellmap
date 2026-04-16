@@ -42,6 +42,11 @@ type HeartbeatRequestDTO = registry.HeartbeatRequest
 type RegistryInstanceDTO struct {
 	Namespace         string            `json:"namespace"`
 	Service           string            `json:"service"`
+	Organization      string            `json:"organization,omitempty"`
+	BusinessDomain    string            `json:"businessDomain,omitempty"`
+	CapabilityDomain  string            `json:"capabilityDomain,omitempty"`
+	Application       string            `json:"application,omitempty"`
+	Role              string            `json:"role,omitempty"`
 	InstanceID        string            `json:"instanceId"`
 	Zone              string            `json:"zone,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
@@ -54,27 +59,37 @@ type RegistryInstanceDTO struct {
 
 // RegistryWatchEventDTO 表示注册中心 watch 事件。
 type RegistryWatchEventDTO struct {
-	Revision   uint64                `json:"revision"`
-	Type       string                `json:"type"`
-	Namespace  string                `json:"namespace,omitempty"`
-	Service    string                `json:"service,omitempty"`
-	InstanceID string                `json:"instanceId,omitempty"`
-	Instance   *RegistryInstanceDTO  `json:"instance,omitempty"`
-	Instances  []RegistryInstanceDTO `json:"instances,omitempty"`
+	Revision         uint64                `json:"revision"`
+	Type             string                `json:"type"`
+	Namespace        string                `json:"namespace,omitempty"`
+	Service          string                `json:"service,omitempty"`
+	Organization     string                `json:"organization,omitempty"`
+	BusinessDomain   string                `json:"businessDomain,omitempty"`
+	CapabilityDomain string                `json:"capabilityDomain,omitempty"`
+	Application      string                `json:"application,omitempty"`
+	Role             string                `json:"role,omitempty"`
+	InstanceID       string                `json:"instanceId,omitempty"`
+	Instance         *RegistryInstanceDTO  `json:"instance,omitempty"`
+	Instances        []RegistryInstanceDTO `json:"instances,omitempty"`
 }
 
 // ReplicationWatchEventDTO 表示内部目录同步 watch 事件。
 type ReplicationWatchEventDTO struct {
-	Revision        uint64                `json:"revision"`
-	Type            string                `json:"type"`
-	Namespace       string                `json:"namespace,omitempty"`
-	Service         string                `json:"service,omitempty"`
-	InstanceID      string                `json:"instanceId,omitempty"`
-	SourceRegion    string                `json:"sourceRegion"`
-	SourceClusterID string                `json:"sourceClusterId"`
-	ExportedAtUnix  int64                 `json:"exportedAtUnix,omitempty"`
-	Instance        *RegistryInstanceDTO  `json:"instance,omitempty"`
-	Instances       []RegistryInstanceDTO `json:"instances,omitempty"`
+	Revision         uint64                `json:"revision"`
+	Type             string                `json:"type"`
+	Namespace        string                `json:"namespace,omitempty"`
+	Service          string                `json:"service,omitempty"`
+	Organization     string                `json:"organization,omitempty"`
+	BusinessDomain   string                `json:"businessDomain,omitempty"`
+	CapabilityDomain string                `json:"capabilityDomain,omitempty"`
+	Application      string                `json:"application,omitempty"`
+	Role             string                `json:"role,omitempty"`
+	InstanceID       string                `json:"instanceId,omitempty"`
+	SourceRegion     string                `json:"sourceRegion"`
+	SourceClusterID  string                `json:"sourceClusterId"`
+	ExportedAtUnix   int64                 `json:"exportedAtUnix,omitempty"`
+	Instance         *RegistryInstanceDTO  `json:"instance,omitempty"`
+	Instances        []RegistryInstanceDTO `json:"instances,omitempty"`
 }
 
 // HealthResponseDTO 表示健康检查返回。

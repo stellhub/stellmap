@@ -62,6 +62,31 @@ func TestNormalizeRegisterInputNormalizesAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeRegisterInputBuildsStructuredServiceName(t *testing.T) {
+	request := RegisterInput{
+		Namespace:        "prod",
+		Organization:     "company",
+		BusinessDomain:   "trade",
+		CapabilityDomain: "order",
+		Application:      "order-center",
+		Role:             "api",
+		InstanceID:       "order-1",
+		Endpoints: []Endpoint{{
+			Protocol: "http",
+			Host:     "127.0.0.1",
+			Port:     8080,
+		}},
+	}
+
+	if err := NormalizeRegisterInput(&request); err != nil {
+		t.Fatalf("normalize register input failed: %v", err)
+	}
+
+	if request.Service != "company.trade.order.order-center.api" {
+		t.Fatalf("unexpected canonical service name: %s", request.Service)
+	}
+}
+
 func TestNormalizeRegisterInputRejectsInvalidEndpoint(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -160,6 +185,23 @@ func TestParseQueryAndFilterEndpoints(t *testing.T) {
 	filtered[0].Host = "mutated"
 	if endpoints[0].Host != "127.0.0.1" {
 		t.Fatalf("filter endpoints should return cloned slice")
+	}
+}
+
+func TestParseQuerySupportsStructuredServicePrefix(t *testing.T) {
+	values := url.Values{
+		"namespace":      []string{"prod"},
+		"organization":   []string{"company"},
+		"businessDomain": []string{"trade"},
+	}
+
+	query, err := ParseQuery(values)
+	if err != nil {
+		t.Fatalf("parse query failed: %v", err)
+	}
+
+	if len(query.ServicePrefixes) != 1 || query.ServicePrefixes[0] != "company.trade" {
+		t.Fatalf("unexpected service prefixes: %+v", query.ServicePrefixes)
 	}
 }
 

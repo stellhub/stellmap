@@ -4,14 +4,24 @@ import (
 	"net/http"
 )
 
+const (
+	routeRegistryRegister          = "/api/v1/registry/register"
+	routeRegistryDeregister        = "/api/v1/registry/deregister"
+	routeRegistryHeartbeat         = "/api/v1/registry/heartbeat"
+	routeRegistryInstances         = "/api/v1/registry/instances"
+	routeRegistryWatch             = "/api/v1/registry/watch"
+	routeReplicationWatch          = "/internal/v1/replication/watch"
+	routePrometheusServiceDiscover = "/internal/v1/prometheus/sd"
+)
+
 func registerRegistryRoutes(mux *http.ServeMux, handler RegistryHandler) {
-	mux.HandleFunc("/api/v1/registry/register", handler.Register)
-	mux.HandleFunc("/api/v1/registry/deregister", handler.Deregister)
-	mux.HandleFunc("/api/v1/registry/heartbeat", handler.Heartbeat)
-	mux.HandleFunc("/api/v1/registry/instances", handler.QueryInstances)
-	mux.HandleFunc("/api/v1/registry/watch", handler.WatchInstances)
-	mux.HandleFunc("/internal/v1/replication/watch", handler.WatchReplication)
-	mux.HandleFunc("/internal/v1/prometheus/sd", handler.PrometheusSD)
+	mux.HandleFunc(routeRegistryRegister, handler.Register)
+	mux.HandleFunc(routeRegistryDeregister, handler.Deregister)
+	mux.HandleFunc(routeRegistryHeartbeat, handler.Heartbeat)
+	mux.HandleFunc(routeRegistryInstances, handler.QueryInstances)
+	mux.HandleFunc(routeRegistryWatch, handler.WatchInstances)
+	mux.HandleFunc(routeReplicationWatch, handler.WatchReplication)
+	mux.HandleFunc(routePrometheusServiceDiscover, handler.PrometheusSD)
 }
 
 // NoopRegistryHandler 是对外数据面 handler 的最小占位实现。

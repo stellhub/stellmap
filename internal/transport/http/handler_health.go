@@ -4,10 +4,16 @@ import (
 	"net/http"
 )
 
+const (
+	routeHealthz = "/healthz"
+	routeReadyz  = "/readyz"
+	routeMetrics = "/metrics"
+)
+
 func registerHealthRoutes(mux *http.ServeMux, handler HealthHandler) {
-	mux.HandleFunc("/healthz", handler.Healthz)
-	mux.HandleFunc("/readyz", handler.Readyz)
-	mux.HandleFunc("/metrics", handler.Metrics)
+	mux.HandleFunc(routeHealthz, handler.Healthz)
+	mux.HandleFunc(routeReadyz, handler.Readyz)
+	mux.HandleFunc(routeMetrics, handler.Metrics)
 }
 
 // NoopHealthHandler 是健康检查 handler 的最小占位实现。
