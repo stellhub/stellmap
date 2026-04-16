@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package starmap.v1;
 
-option go_package = "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1";
+option go_package = "github.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1";
 
 // snapshot.proto 定义内部快照 gRPC 传输接口与消息模型。
 //

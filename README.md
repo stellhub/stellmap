@@ -1044,7 +1044,7 @@ targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
 ## Module
 
 ```go
-module github.com/chenwenlong-java/StarMap
+module github.com/stellaraxis/starmap
 ```
 
 ## Refrence

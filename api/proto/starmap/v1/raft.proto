@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package starmap.v1;
 
-option go_package = "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1";
+option go_package = "github.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1";
 
 // raft.proto 定义内部 Raft gRPC 复制接口与消息模型。
 //
