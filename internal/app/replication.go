@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
-	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/storage"
+	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
 )
 
 const replicationRetryDelay = 2 * time.Second

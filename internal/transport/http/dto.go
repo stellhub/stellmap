@@ -1,6 +1,6 @@
 package httptransport
 
-import "github.com/chenwenlong-java/StarMap/internal/registry"
+import "github.com/stellaraxis/starmap/internal/registry"
 
 // ErrorResponse 定义对外统一错误响应。
 type ErrorResponse struct {

@@ -5,8 +5,8 @@ import (
 	"io"
 	"time"
 
-	starmapv1 "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1"
-	"github.com/chenwenlong-java/StarMap/internal/metrics"
+	starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
+	"github.com/stellaraxis/starmap/internal/metrics"
 	"google.golang.org/grpc"
 )
 

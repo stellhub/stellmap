@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
-	"github.com/chenwenlong-java/StarMap/internal/raftnode"
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
 	"github.com/prometheus/client_golang/prometheus"
+	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
+	"github.com/stellaraxis/starmap/internal/raftnode"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/storage"
 )
 
 func TestRegisterRecordsRegistryClientMetrics(t *testing.T) {

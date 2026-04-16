@@ -189,7 +189,7 @@ const file_starmap_v1_raft_proto_rawDesc = "" +
 	"\bmessages\x18\x01 \x03(\v2\x18.starmap.v1.RaftEnvelopeR\bmessages\"\x10\n" +
 	"\x0eRaftMessageAck2Q\n" +
 	"\rRaftTransport\x12@\n" +
-	"\x04Send\x12\x1c.starmap.v1.RaftMessageBatch\x1a\x1a.starmap.v1.RaftMessageAckBEZCgithub.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
+	"\x04Send\x12\x1c.starmap.v1.RaftMessageBatch\x1a\x1a.starmap.v1.RaftMessageAckBEZCgithub.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
 
 var (
 	file_starmap_v1_raft_proto_rawDescOnce sync.Once

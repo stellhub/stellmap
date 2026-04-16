@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/snapshot"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
+	"github.com/stellaraxis/starmap/internal/snapshot"
+	"github.com/stellaraxis/starmap/internal/storage"
 	"go.etcd.io/raft/v3"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )

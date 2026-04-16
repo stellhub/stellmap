@@ -1,6 +1,6 @@
 package registry
 
-import "github.com/chenwenlong-java/StarMap/internal/storage"
+import "github.com/stellaraxis/starmap/internal/storage"
 
 // CleanupCursor 记录下一轮后台过期清理应该从哪个 key 开始继续扫描。
 type CleanupCursor struct {

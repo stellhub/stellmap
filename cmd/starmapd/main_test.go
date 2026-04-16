@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/raftnode"
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
-	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
+	"github.com/stellaraxis/starmap/internal/raftnode"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/storage"
+	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
 )
 
 type testSuccessEnvelope struct {

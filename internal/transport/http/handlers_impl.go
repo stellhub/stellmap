@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
-	"github.com/chenwenlong-java/StarMap/internal/raftnode"
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/replication"
-	"github.com/chenwenlong-java/StarMap/internal/runtime"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
+	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
+	"github.com/stellaraxis/starmap/internal/raftnode"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/replication"
+	"github.com/stellaraxis/starmap/internal/runtime"
+	"github.com/stellaraxis/starmap/internal/storage"
 )
 
 // RegistryAPI 实现对外 HTTP 数据面。

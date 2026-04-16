@@ -1,6 +1,6 @@
 package grpctransport
 
-import starmapv1 "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1"
+import starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
 
 // RaftEnvelope 表示一条节点间传输的内部 Raft 消息。
 //

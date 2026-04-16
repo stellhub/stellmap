@@ -6,8 +6,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/chenwenlong-java/StarMap/internal/snapshot"
-	grpctransport "github.com/chenwenlong-java/StarMap/internal/transport/grpc"
+	"github.com/stellaraxis/starmap/internal/snapshot"
+	grpctransport "github.com/stellaraxis/starmap/internal/transport/grpc"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 

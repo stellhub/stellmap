@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/storage"
 )
 
 const (

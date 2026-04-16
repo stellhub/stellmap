@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/metrics"
+	"github.com/stellaraxis/starmap/internal/metrics"
 )
 
 // RegistryHandler 描述注册中心 HTTP 数据面需要实现的能力。

@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
 )
 
 func TestPublicServerWithMetricsObservesKnownAndUnknownRoutes(t *testing.T) {

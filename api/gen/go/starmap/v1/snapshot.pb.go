@@ -396,7 +396,7 @@ const file_starmap_v1_snapshot_proto_rawDesc = "" +
 	"\x03eof\x18\x04 \x01(\bR\x03eof2\xbb\x01\n" +
 	"\x0fSnapshotService\x12R\n" +
 	"\aInstall\x12 .starmap.v1.InstallSnapshotChunk\x1a#.starmap.v1.InstallSnapshotResponse(\x01\x12T\n" +
-	"\bDownload\x12#.starmap.v1.DownloadSnapshotRequest\x1a!.starmap.v1.DownloadSnapshotChunk0\x01BEZCgithub.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
+	"\bDownload\x12#.starmap.v1.DownloadSnapshotRequest\x1a!.starmap.v1.DownloadSnapshotChunk0\x01BEZCgithub.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
 
 var (
 	file_starmap_v1_snapshot_proto_rawDescOnce sync.Once

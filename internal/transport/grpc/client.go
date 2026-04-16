@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	starmapv1 "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1"
+	starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

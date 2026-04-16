@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	starmapv1 "github.com/chenwenlong-java/StarMap/api/gen/go/starmap/v1"
-	internalmetrics "github.com/chenwenlong-java/StarMap/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
+	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
 	"google.golang.org/grpc/metadata"
 )
 

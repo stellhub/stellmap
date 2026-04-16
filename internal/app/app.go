@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenwenlong-java/StarMap/internal/raftnode"
-	"github.com/chenwenlong-java/StarMap/internal/registry"
-	"github.com/chenwenlong-java/StarMap/internal/replication"
-	"github.com/chenwenlong-java/StarMap/internal/runtime"
-	"github.com/chenwenlong-java/StarMap/internal/storage"
-	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
+	"github.com/stellaraxis/starmap/internal/raftnode"
+	"github.com/stellaraxis/starmap/internal/registry"
+	"github.com/stellaraxis/starmap/internal/replication"
+	"github.com/stellaraxis/starmap/internal/runtime"
+	"github.com/stellaraxis/starmap/internal/storage"
+	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/grpc"
 )

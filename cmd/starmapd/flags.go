@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	daemonapp "github.com/chenwenlong-java/StarMap/internal/app"
-	"github.com/chenwenlong-java/StarMap/internal/raftnode"
+	daemonapp "github.com/stellaraxis/starmap/internal/app"
+	"github.com/stellaraxis/starmap/internal/raftnode"
 )
 
 // parseFlags 解析命令行参数，并在需要时合并 TOML 配置文件。

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	httptransport "github.com/chenwenlong-java/StarMap/internal/transport/http"
+	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
 )
 
 const (
@@ -45,6 +45,7 @@ type controlClient struct {
 // 本机运维示例：
 //
 //  1. 设置 tok
+//
 //  1. 设置 token。
 //     PowerShell:
 //     $env:STARMAP_ADMIN_TOKEN="your-admin-token"
