@@ -340,39 +340,39 @@ jobs:
               copy_common_bundle_files "${bundle_dir}"
               # 这里直接生成目标机器最终会使用的 stellmapd.toml。
               cat > "${bundle_dir}/stellmapd.toml" <<EOF
-[node]
-id = ${node_id}
-cluster_id = ${cluster_id}
-region = "${region}"
-data_dir = "${data_dir}"
+              [node]
+              id = ${node_id}
+              cluster_id = ${cluster_id}
+              region = "${region}"
+              data_dir = "${data_dir}"
 
-[server]
-http_addr = "${http_addr}"
-admin_addr = "${admin_addr}"
-grpc_addr = "${grpc_addr}"
+              [server]
+              http_addr = "${http_addr}"
+              admin_addr = "${admin_addr}"
+              grpc_addr = "${grpc_addr}"
 
-[auth]
-admin_token = "${admin_token}"
-replication_token = "${replication_token}"
-prometheus_sd_token = "${prometheus_sd_token}"
+              [auth]
+              admin_token = "${admin_token}"
+              replication_token = "${replication_token}"
+              prometheus_sd_token = "${prometheus_sd_token}"
 
-[cluster]
-peer_ids = "${peer_ids}"
-peer_grpc_addrs = "${peer_grpc_addrs}"
-peer_http_addrs = "${peer_http_addrs}"
-peer_admin_addrs = "${peer_admin_addrs}"
+              [cluster]
+              peer_ids = "${peer_ids}"
+              peer_grpc_addrs = "${peer_grpc_addrs}"
+              peer_http_addrs = "${peer_http_addrs}"
+              peer_admin_addrs = "${peer_admin_addrs}"
 
-[runtime]
-request_timeout = "${request_timeout}"
-shutdown_timeout = "${shutdown_timeout}"
+              [runtime]
+              request_timeout = "${request_timeout}"
+              shutdown_timeout = "${shutdown_timeout}"
 
-[registry]
-cleanup_interval = "${cleanup_interval}"
-cleanup_delete_limit = ${cleanup_delete_limit}
+              [registry]
+              cleanup_interval = "${cleanup_interval}"
+              cleanup_delete_limit = ${cleanup_delete_limit}
 
-[replication]
-targets_file = "${targets_file}"
-EOF
+              [replication]
+              targets_file = "${targets_file}"
+              EOF
 
               printf '%s\t%s\t%s\n' "${node_id}" "${host}" "${bundle_dir}" >> "${manifest_path}"
             done
