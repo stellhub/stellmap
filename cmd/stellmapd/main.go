@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	daemonapp "github.com/stellhub/stellmap/internal/app"
+	daemonlogging "github.com/stellhub/stellmap/internal/logging"
 	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
 	"github.com/stellhub/stellmap/internal/raftnode"
 	"github.com/stellhub/stellmap/internal/registry"
@@ -57,6 +58,18 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	daemonLogger, err := daemonlogging.New(ctx, cfg)
+	if err != nil {
+		log.Fatalf("init stellmapd logger failed: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), daemonlogging.EffectiveShutdownTimeout(cfg))
+		defer cancel()
+		if err := daemonLogger.Close(shutdownCtx); err != nil {
+			log.Printf("close stellmapd logger failed: %v", err)
+		}
+	}()
 
 	app, err := newServerApp(cfg)
 	if err != nil {
