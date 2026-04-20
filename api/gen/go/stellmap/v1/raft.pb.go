@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v4.25.2
-// source: starmap/v1/raft.proto
+// source: stellmap/v1/raft.proto
 
-package starmapv1
+package stellmapv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -41,7 +41,7 @@ type RaftEnvelope struct {
 
 func (x *RaftEnvelope) Reset() {
 	*x = RaftEnvelope{}
-	mi := &file_starmap_v1_raft_proto_msgTypes[0]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -53,7 +53,7 @@ func (x *RaftEnvelope) String() string {
 func (*RaftEnvelope) ProtoMessage() {}
 
 func (x *RaftEnvelope) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_raft_proto_msgTypes[0]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66,7 +66,7 @@ func (x *RaftEnvelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RaftEnvelope.ProtoReflect.Descriptor instead.
 func (*RaftEnvelope) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_raft_proto_rawDescGZIP(), []int{0}
+	return file_stellmap_v1_raft_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RaftEnvelope) GetFrom() uint64 {
@@ -101,7 +101,7 @@ type RaftMessageBatch struct {
 
 func (x *RaftMessageBatch) Reset() {
 	*x = RaftMessageBatch{}
-	mi := &file_starmap_v1_raft_proto_msgTypes[1]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -113,7 +113,7 @@ func (x *RaftMessageBatch) String() string {
 func (*RaftMessageBatch) ProtoMessage() {}
 
 func (x *RaftMessageBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_raft_proto_msgTypes[1]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -126,7 +126,7 @@ func (x *RaftMessageBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RaftMessageBatch.ProtoReflect.Descriptor instead.
 func (*RaftMessageBatch) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_raft_proto_rawDescGZIP(), []int{1}
+	return file_stellmap_v1_raft_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RaftMessageBatch) GetMessages() []*RaftEnvelope {
@@ -147,7 +147,7 @@ type RaftMessageAck struct {
 
 func (x *RaftMessageAck) Reset() {
 	*x = RaftMessageAck{}
-	mi := &file_starmap_v1_raft_proto_msgTypes[2]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -159,7 +159,7 @@ func (x *RaftMessageAck) String() string {
 func (*RaftMessageAck) ProtoMessage() {}
 
 func (x *RaftMessageAck) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_raft_proto_msgTypes[2]
+	mi := &file_stellmap_v1_raft_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -172,47 +172,46 @@ func (x *RaftMessageAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RaftMessageAck.ProtoReflect.Descriptor instead.
 func (*RaftMessageAck) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_raft_proto_rawDescGZIP(), []int{2}
+	return file_stellmap_v1_raft_proto_rawDescGZIP(), []int{2}
 }
 
-var File_starmap_v1_raft_proto protoreflect.FileDescriptor
+var File_stellmap_v1_raft_proto protoreflect.FileDescriptor
 
-const file_starmap_v1_raft_proto_rawDesc = "" +
+const file_stellmap_v1_raft_proto_rawDesc = "" +
 	"\n" +
-	"\x15starmap/v1/raft.proto\x12\n" +
-	"starmap.v1\"L\n" +
+	"\x16stellmap/v1/raft.proto\x12\vstellmap.v1\"L\n" +
 	"\fRaftEnvelope\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x04R\x04from\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\x04R\x02to\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\fR\apayload\"H\n" +
-	"\x10RaftMessageBatch\x124\n" +
-	"\bmessages\x18\x01 \x03(\v2\x18.starmap.v1.RaftEnvelopeR\bmessages\"\x10\n" +
-	"\x0eRaftMessageAck2Q\n" +
-	"\rRaftTransport\x12@\n" +
-	"\x04Send\x12\x1c.starmap.v1.RaftMessageBatch\x1a\x1a.starmap.v1.RaftMessageAckB@Z>github.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
+	"\apayload\x18\x03 \x01(\fR\apayload\"I\n" +
+	"\x10RaftMessageBatch\x125\n" +
+	"\bmessages\x18\x01 \x03(\v2\x19.stellmap.v1.RaftEnvelopeR\bmessages\"\x10\n" +
+	"\x0eRaftMessageAck2S\n" +
+	"\rRaftTransport\x12B\n" +
+	"\x04Send\x12\x1d.stellmap.v1.RaftMessageBatch\x1a\x1b.stellmap.v1.RaftMessageAckB@Z>github.com/stellhub/stellmap/api/gen/go/stellmap/v1;stellmapv1b\x06proto3"
 
 var (
-	file_starmap_v1_raft_proto_rawDescOnce sync.Once
-	file_starmap_v1_raft_proto_rawDescData []byte
+	file_stellmap_v1_raft_proto_rawDescOnce sync.Once
+	file_stellmap_v1_raft_proto_rawDescData []byte
 )
 
-func file_starmap_v1_raft_proto_rawDescGZIP() []byte {
-	file_starmap_v1_raft_proto_rawDescOnce.Do(func() {
-		file_starmap_v1_raft_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_starmap_v1_raft_proto_rawDesc), len(file_starmap_v1_raft_proto_rawDesc)))
+func file_stellmap_v1_raft_proto_rawDescGZIP() []byte {
+	file_stellmap_v1_raft_proto_rawDescOnce.Do(func() {
+		file_stellmap_v1_raft_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_stellmap_v1_raft_proto_rawDesc), len(file_stellmap_v1_raft_proto_rawDesc)))
 	})
-	return file_starmap_v1_raft_proto_rawDescData
+	return file_stellmap_v1_raft_proto_rawDescData
 }
 
-var file_starmap_v1_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_starmap_v1_raft_proto_goTypes = []any{
-	(*RaftEnvelope)(nil),     // 0: starmap.v1.RaftEnvelope
-	(*RaftMessageBatch)(nil), // 1: starmap.v1.RaftMessageBatch
-	(*RaftMessageAck)(nil),   // 2: starmap.v1.RaftMessageAck
+var file_stellmap_v1_raft_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_stellmap_v1_raft_proto_goTypes = []any{
+	(*RaftEnvelope)(nil),     // 0: stellmap.v1.RaftEnvelope
+	(*RaftMessageBatch)(nil), // 1: stellmap.v1.RaftMessageBatch
+	(*RaftMessageAck)(nil),   // 2: stellmap.v1.RaftMessageAck
 }
-var file_starmap_v1_raft_proto_depIdxs = []int32{
-	0, // 0: starmap.v1.RaftMessageBatch.messages:type_name -> starmap.v1.RaftEnvelope
-	1, // 1: starmap.v1.RaftTransport.Send:input_type -> starmap.v1.RaftMessageBatch
-	2, // 2: starmap.v1.RaftTransport.Send:output_type -> starmap.v1.RaftMessageAck
+var file_stellmap_v1_raft_proto_depIdxs = []int32{
+	0, // 0: stellmap.v1.RaftMessageBatch.messages:type_name -> stellmap.v1.RaftEnvelope
+	1, // 1: stellmap.v1.RaftTransport.Send:input_type -> stellmap.v1.RaftMessageBatch
+	2, // 2: stellmap.v1.RaftTransport.Send:output_type -> stellmap.v1.RaftMessageAck
 	2, // [2:3] is the sub-list for method output_type
 	1, // [1:2] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -220,26 +219,26 @@ var file_starmap_v1_raft_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_starmap_v1_raft_proto_init() }
-func file_starmap_v1_raft_proto_init() {
-	if File_starmap_v1_raft_proto != nil {
+func init() { file_stellmap_v1_raft_proto_init() }
+func file_stellmap_v1_raft_proto_init() {
+	if File_stellmap_v1_raft_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_starmap_v1_raft_proto_rawDesc), len(file_starmap_v1_raft_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stellmap_v1_raft_proto_rawDesc), len(file_stellmap_v1_raft_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_starmap_v1_raft_proto_goTypes,
-		DependencyIndexes: file_starmap_v1_raft_proto_depIdxs,
-		MessageInfos:      file_starmap_v1_raft_proto_msgTypes,
+		GoTypes:           file_stellmap_v1_raft_proto_goTypes,
+		DependencyIndexes: file_stellmap_v1_raft_proto_depIdxs,
+		MessageInfos:      file_stellmap_v1_raft_proto_msgTypes,
 	}.Build()
-	File_starmap_v1_raft_proto = out.File
-	file_starmap_v1_raft_proto_goTypes = nil
-	file_starmap_v1_raft_proto_depIdxs = nil
+	File_stellmap_v1_raft_proto = out.File
+	file_stellmap_v1_raft_proto_goTypes = nil
+	file_stellmap_v1_raft_proto_depIdxs = nil
 }

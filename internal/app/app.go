@@ -13,17 +13,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/replication"
-	"github.com/stellaraxis/starmap/internal/runtime"
-	"github.com/stellaraxis/starmap/internal/storage"
-	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/replication"
+	"github.com/stellhub/stellmap/internal/runtime"
+	"github.com/stellhub/stellmap/internal/storage"
+	httptransport "github.com/stellhub/stellmap/internal/transport/http"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/grpc"
 )
 
-// Config 描述 starmapd 的启动配置。
+// Config 描述 stellmapd 的启动配置。
 type Config struct {
 	NodeID                     uint64
 	ClusterID                  uint64
@@ -59,7 +59,7 @@ type Components struct {
 	ReplicationTracker *replication.Tracker
 }
 
-// App 是 starmapd 的运行时应用对象。
+// App 是 stellmapd 的运行时应用对象。
 type App struct {
 	cfg                   Config
 	node                  *raftnode.RaftNode

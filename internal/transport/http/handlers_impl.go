@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/replication"
-	"github.com/stellaraxis/starmap/internal/runtime"
-	"github.com/stellaraxis/starmap/internal/storage"
+	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/replication"
+	"github.com/stellhub/stellmap/internal/runtime"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 // RegistryAPI 实现对外 HTTP 数据面。
@@ -1383,8 +1383,8 @@ func prometheusSDTargetGroupFromValue(value registry.Value, endpointName, origin
 		"__scheme__":       normalizePrometheusScheme(endpoint.Protocol),
 		"__metrics_path__": normalizePrometheusPath(endpoint.Path),
 	}
-	addPrefixedPrometheusLabels(labels, "starmap_label_", value.Labels)
-	addPrefixedPrometheusLabels(labels, "starmap_meta_", value.Metadata)
+	addPrefixedPrometheusLabels(labels, "stellmap_label_", value.Labels)
+	addPrefixedPrometheusLabels(labels, "stellmap_meta_", value.Metadata)
 	deleteEmptyLabels(labels)
 
 	return PrometheusSDTargetGroupDTO{
@@ -1497,14 +1497,14 @@ func (h *RegistryAPI) selfPrometheusSDTargetGroups() []PrometheusSDTargetGroupDT
 			Targets: []string{target},
 			Labels: map[string]string{
 				"namespace":        "system",
-				"service":          "starmapd",
+				"service":          "stellmapd",
 				"instance_id":      fmt.Sprintf("node-%d", nodeID),
 				"node_id":          strconv.FormatUint(nodeID, 10),
 				"region":           h.sourceRegion,
 				"cluster_id":       h.sourceCluster,
 				"target_origin":    "self",
-				"target_kind":      "starmapd",
-				"component":        "starmapd",
+				"target_kind":      "stellmapd",
+				"component":        "stellmapd",
 				"__scheme__":       "http",
 				"__metrics_path__": "/metrics",
 			},
@@ -1635,13 +1635,13 @@ func parseRegistryCallerIdentity(r *http.Request) (internalmetrics.RegistryIdent
 	}
 
 	values := r.URL.Query()
-	namespace := callerField(values, r.Header, "callerNamespace", "X-StarMap-Caller-Namespace", "X-Caller-Namespace")
-	service := callerField(values, r.Header, "callerService", "X-StarMap-Caller-Service", "X-Caller-Service")
-	organization := callerField(values, r.Header, "callerOrganization", "X-StarMap-Caller-Organization", "X-Caller-Organization")
-	businessDomain := callerField(values, r.Header, "callerBusinessDomain", "X-StarMap-Caller-Business-Domain", "X-Caller-Business-Domain")
-	capabilityDomain := callerField(values, r.Header, "callerCapabilityDomain", "X-StarMap-Caller-Capability-Domain", "X-Caller-Capability-Domain")
-	application := callerField(values, r.Header, "callerApplication", "X-StarMap-Caller-Application", "X-Caller-Application")
-	role := callerField(values, r.Header, "callerRole", "X-StarMap-Caller-Role", "X-Caller-Role")
+	namespace := callerField(values, r.Header, "callerNamespace", "X-StellMap-Caller-Namespace", "X-Caller-Namespace")
+	service := callerField(values, r.Header, "callerService", "X-StellMap-Caller-Service", "X-Caller-Service")
+	organization := callerField(values, r.Header, "callerOrganization", "X-StellMap-Caller-Organization", "X-Caller-Organization")
+	businessDomain := callerField(values, r.Header, "callerBusinessDomain", "X-StellMap-Caller-Business-Domain", "X-Caller-Business-Domain")
+	capabilityDomain := callerField(values, r.Header, "callerCapabilityDomain", "X-StellMap-Caller-Capability-Domain", "X-Caller-Capability-Domain")
+	application := callerField(values, r.Header, "callerApplication", "X-StellMap-Caller-Application", "X-Caller-Application")
+	role := callerField(values, r.Header, "callerRole", "X-StellMap-Caller-Role", "X-Caller-Role")
 
 	namespace = strings.TrimSpace(namespace)
 	service = strings.TrimSpace(service)

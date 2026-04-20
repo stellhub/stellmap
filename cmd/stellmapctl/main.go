@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
+	httptransport "github.com/stellhub/stellmap/internal/transport/http"
 )
 
 const (
 	defaultControlServer  = "http://127.0.0.1:18080"
 	defaultControlTimeout = 5 * time.Second
-	adminTokenEnvKey      = "STARMAP_ADMIN_TOKEN"
+	adminTokenEnvKey      = "STELLMAP_ADMIN_TOKEN"
 )
 
 type successEnvelope struct {
@@ -35,12 +35,12 @@ type controlClient struct {
 	client  *http.Client
 }
 
-// main 是 starmapctl 的命令行入口。
+// main 是 stellmapctl 的命令行入口。
 //
 // 本机运维前提：
-// 1. starmapd 已经启动，并且配置了独立 admin listener，例如 127.0.0.1:18080。
+// 1. stellmapd 已经启动，并且配置了独立 admin listener，例如 127.0.0.1:18080。
 // 2. admin listener 当前只允许 127.0.0.1 访问，因此这些命令需要在目标节点本机执行。
-// 3. 调用时必须提供 admin token，可以通过 --token 或环境变量 STARMAP_ADMIN_TOKEN 注入。
+// 3. 调用时必须提供 admin token，可以通过 --token 或环境变量 STELLMAP_ADMIN_TOKEN 注入。
 //
 // 本机运维示例：
 //
@@ -48,22 +48,22 @@ type controlClient struct {
 //
 //  1. 设置 token。
 //     PowerShell:
-//     $env:STARMAP_ADMIN_TOKEN="your-admin-token"
+//     $env:STELLMAP_ADMIN_TOKEN="your-admin-token"
 //
 //  2. 查询当前节点视角下的集群状态。
-//     go run ./cmd/starmapctl status
+//     go run ./cmd/stellmapctl status
 //
 //  3. 新增 learner 节点。
-//     go run ./cmd/starmapctl member add-learner --node-id=4 --http-addr=127.0.0.1:8083 --grpc-addr=127.0.0.1:19093 --admin-addr=127.0.0.1:18083
+//     go run ./cmd/stellmapctl member add-learner --node-id=4 --http-addr=127.0.0.1:8083 --grpc-addr=127.0.0.1:19093 --admin-addr=127.0.0.1:18083
 //
 //  4. 将 learner 提升为正式投票节点。
-//     go run ./cmd/starmapctl member promote --node-id=4
+//     go run ./cmd/stellmapctl member promote --node-id=4
 //
 //  5. 移除节点。
-//     go run ./cmd/starmapctl member remove --node-id=4
+//     go run ./cmd/stellmapctl member remove --node-id=4
 //
 //  6. 主动转移 Leader。
-//     go run ./cmd/starmapctl leader transfer --target-node-id=2
+//     go run ./cmd/stellmapctl leader transfer --target-node-id=2
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -123,8 +123,8 @@ func runLeader(args []string) {
 // runStatus 查询当前节点视角下的集群状态。
 func runStatus(args []string) {
 	flags := flag.NewFlagSet("status", flag.ExitOnError)
-	server := flags.String("server", defaultControlServer, "starmapd 控制面 HTTP 地址")
-	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STARMAP_ADMIN_TOKEN")
+	server := flags.String("server", defaultControlServer, "stellmapd 控制面 HTTP 地址")
+	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STELLMAP_ADMIN_TOKEN")
 	timeout := flags.Duration("timeout", defaultControlTimeout, "请求超时")
 	flags.Parse(args)
 
@@ -150,8 +150,8 @@ func runStatus(args []string) {
 
 func runAddLearner(args []string) {
 	flags := flag.NewFlagSet("member add-learner", flag.ExitOnError)
-	server := flags.String("server", defaultControlServer, "starmapd 控制面 HTTP 地址")
-	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STARMAP_ADMIN_TOKEN")
+	server := flags.String("server", defaultControlServer, "stellmapd 控制面 HTTP 地址")
+	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STELLMAP_ADMIN_TOKEN")
 	timeout := flags.Duration("timeout", defaultControlTimeout, "请求超时")
 	nodeID := flags.Uint64("node-id", 0, "待加入节点 ID")
 	httpAddr := flags.String("http-addr", "", "待加入节点的 HTTP 地址")
@@ -185,8 +185,8 @@ func runAddLearner(args []string) {
 
 func runPromoteLearner(args []string) {
 	flags := flag.NewFlagSet("member promote", flag.ExitOnError)
-	server := flags.String("server", defaultControlServer, "starmapd 控制面 HTTP 地址")
-	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STARMAP_ADMIN_TOKEN")
+	server := flags.String("server", defaultControlServer, "stellmapd 控制面 HTTP 地址")
+	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STELLMAP_ADMIN_TOKEN")
 	timeout := flags.Duration("timeout", defaultControlTimeout, "请求超时")
 	nodeID := flags.Uint64("node-id", 0, "待提升节点 ID")
 	flags.Parse(args)
@@ -214,8 +214,8 @@ func runPromoteLearner(args []string) {
 
 func runRemoveMember(args []string) {
 	flags := flag.NewFlagSet("member remove", flag.ExitOnError)
-	server := flags.String("server", defaultControlServer, "starmapd 控制面 HTTP 地址")
-	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STARMAP_ADMIN_TOKEN")
+	server := flags.String("server", defaultControlServer, "stellmapd 控制面 HTTP 地址")
+	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STELLMAP_ADMIN_TOKEN")
 	timeout := flags.Duration("timeout", defaultControlTimeout, "请求超时")
 	nodeID := flags.Uint64("node-id", 0, "待移除节点 ID")
 	flags.Parse(args)
@@ -243,8 +243,8 @@ func runRemoveMember(args []string) {
 
 func runTransferLeader(args []string) {
 	flags := flag.NewFlagSet("leader transfer", flag.ExitOnError)
-	server := flags.String("server", defaultControlServer, "starmapd 控制面 HTTP 地址")
-	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STARMAP_ADMIN_TOKEN")
+	server := flags.String("server", defaultControlServer, "stellmapd 控制面 HTTP 地址")
+	token := flags.String("token", "", "admin HTTP 固定鉴权 token；留空时尝试读取环境变量 STELLMAP_ADMIN_TOKEN")
 	timeout := flags.Duration("timeout", defaultControlTimeout, "请求超时")
 	targetNodeID := flags.Uint64("target-node-id", 0, "目标 Leader 节点 ID")
 	flags.Parse(args)
@@ -441,15 +441,15 @@ func resolveAdminToken(flagToken string) string {
 // printUsage 打印当前 CLI 的使用说明。
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  starmapctl status [--server=http://127.0.0.1:18080] [--token=your-token]")
-	fmt.Println("  starmapctl member add-learner --node-id=4 [--http-addr=127.0.0.1:8083] [--grpc-addr=127.0.0.1:19093] [--admin-addr=127.0.0.1:18083] [--server=http://127.0.0.1:18080] [--token=your-token]")
-	fmt.Println("  starmapctl member promote --node-id=4 [--server=http://127.0.0.1:18080] [--token=your-token]")
-	fmt.Println("  starmapctl member remove --node-id=4 [--server=http://127.0.0.1:18080] [--token=your-token]")
-	fmt.Println("  starmapctl leader transfer --target-node-id=2 [--server=http://127.0.0.1:18080] [--token=your-token]")
+	fmt.Println("  stellmapctl status [--server=http://127.0.0.1:18080] [--token=your-token]")
+	fmt.Println("  stellmapctl member add-learner --node-id=4 [--http-addr=127.0.0.1:8083] [--grpc-addr=127.0.0.1:19093] [--admin-addr=127.0.0.1:18083] [--server=http://127.0.0.1:18080] [--token=your-token]")
+	fmt.Println("  stellmapctl member promote --node-id=4 [--server=http://127.0.0.1:18080] [--token=your-token]")
+	fmt.Println("  stellmapctl member remove --node-id=4 [--server=http://127.0.0.1:18080] [--token=your-token]")
+	fmt.Println("  stellmapctl leader transfer --target-node-id=2 [--server=http://127.0.0.1:18080] [--token=your-token]")
 	fmt.Println()
 	fmt.Println("说明:")
-	fmt.Println("  starmapctl 通过 starmapd 独立的 admin HTTP 控制面执行状态查询、成员变更和 Leader 转移。")
-	fmt.Println("  admin listener 当前只允许 127.0.0.1 访问，因此 starmapctl 需要在目标节点本机执行。")
-	fmt.Println("  所有 admin 请求都会附带 Authorization: Bearer <token>，token 可通过 --token 或 STARMAP_ADMIN_TOKEN 提供。")
+	fmt.Println("  stellmapctl 通过 stellmapd 独立的 admin HTTP 控制面执行状态查询、成员变更和 Leader 转移。")
+	fmt.Println("  admin listener 当前只允许 127.0.0.1 访问，因此 stellmapctl 需要在目标节点本机执行。")
+	fmt.Println("  所有 admin 请求都会附带 Authorization: Bearer <token>，token 可通过 --token 或 STELLMAP_ADMIN_TOKEN 提供。")
 	fmt.Println("  当请求打到 follower 且返回 not_leader 时，会自动跟随到 leaderAddr 重试一次。")
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
+	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
 )
 
 func TestPublicServerWithMetricsObservesKnownAndUnknownRoutes(t *testing.T) {
@@ -39,12 +39,12 @@ func TestPublicServerWithMetricsObservesKnownAndUnknownRoutes(t *testing.T) {
 		t.Fatalf("gather metrics failed: %v", err)
 	}
 
-	assertHTTPMetricCounter(t, families, "starmap_http_server_requests_total", map[string]string{
+	assertHTTPMetricCounter(t, families, "stellmap_http_server_requests_total", map[string]string{
 		"route":  routeHealthz,
 		"method": http.MethodGet,
 		"code":   "200",
 	}, 1)
-	assertHTTPMetricCounter(t, families, "starmap_http_server_requests_total", map[string]string{
+	assertHTTPMetricCounter(t, families, "stellmap_http_server_requests_total", map[string]string{
 		"route":  "unknown",
 		"method": http.MethodGet,
 		"code":   "404",

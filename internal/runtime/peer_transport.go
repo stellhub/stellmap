@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	grpctransport "github.com/stellaraxis/starmap/internal/transport/grpc"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	grpctransport "github.com/stellhub/stellmap/internal/transport/grpc"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 

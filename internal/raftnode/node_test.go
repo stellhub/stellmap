@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/snapshot"
-	"github.com/stellaraxis/starmap/internal/storage"
-	"github.com/stellaraxis/starmap/internal/wal"
+	"github.com/stellhub/stellmap/internal/snapshot"
+	"github.com/stellhub/stellmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/wal"
 )
 
 func TestRaftNodeRestartAfterSnapshotAndCompaction(t *testing.T) {

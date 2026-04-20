@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/runtime"
-	"github.com/stellaraxis/starmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/runtime"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 type fakeRegistryNode struct {

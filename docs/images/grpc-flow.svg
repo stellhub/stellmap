@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1360" height="940" viewBox="0 0 1360 940" role="img" aria-labelledby="title desc">
-  <title id="title">StarMap gRPC flow</title>
-  <desc id="desc">gRPC flow diagram for StarMap showing batched raft messages, snapshot install, and snapshot download.</desc>
+  <title id="title">StellMap gRPC flow</title>
+  <desc id="desc">gRPC flow diagram for StellMap showing batched raft messages, snapshot install, and snapshot download.</desc>
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#fbfcfe"/>

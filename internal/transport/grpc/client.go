@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
+	stellmapv1 "github.com/stellhub/stellmap/api/gen/go/stellmap/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -34,9 +34,9 @@ type PeerClient struct {
 	// conn 是底层 gRPC 连接。
 	conn *grpc.ClientConn
 	// raftClient 用于发送普通 Raft 消息。
-	raftClient starmapv1.RaftTransportClient
+	raftClient stellmapv1.RaftTransportClient
 	// snapshotClient 用于安装和下载快照。
-	snapshotClient starmapv1.SnapshotServiceClient
+	snapshotClient stellmapv1.SnapshotServiceClient
 }
 
 // NewPeerClient 创建一个对端客户端。
@@ -51,8 +51,8 @@ func NewPeerClient(target string) (*PeerClient, error) {
 	return &PeerClient{
 		target:         target,
 		conn:           conn,
-		raftClient:     starmapv1.NewRaftTransportClient(conn),
-		snapshotClient: starmapv1.NewSnapshotServiceClient(conn),
+		raftClient:     stellmapv1.NewRaftTransportClient(conn),
+		snapshotClient: stellmapv1.NewSnapshotServiceClient(conn),
 	}, nil
 }
 
@@ -96,7 +96,7 @@ func (c *PeerClient) InstallSnapshot(ctx context.Context, chunks []SnapshotChunk
 //
 // 该方法会持续接收服务端流返回的 chunk，直到遇到 EOF 或最后一个分片。
 func (c *PeerClient) DownloadSnapshot(ctx context.Context, term, index uint64) ([]SnapshotChunk, error) {
-	stream, err := c.snapshotClient.Download(ctx, &starmapv1.DownloadSnapshotRequest{
+	stream, err := c.snapshotClient.Download(ctx, &stellmapv1.DownloadSnapshotRequest{
 		Term:  term,
 		Index: index,
 	})

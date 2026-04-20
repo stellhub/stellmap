@@ -79,7 +79,7 @@ type LogEntry struct {
 //
 // 使用位置：
 // - Ready.Messages 会携带它
-// - cmd/starmapd 会消费这些消息并通过内部 gRPC 发给其他节点
+// - cmd/stellmapd 会消费这些消息并通过内部 gRPC 发给其他节点
 type OutboundMessage struct {
 	// To 是目标节点 ID。
 	To uint64
@@ -125,7 +125,7 @@ type SnapshotMetadata struct {
 //     不必直接介入 WAL 和本地状态机的细节。
 //
 // 使用位置：
-// - cmd/starmapd 会持续消费 Ready 通道
+// - cmd/stellmapd 会持续消费 Ready 通道
 // - 主要使用其中的 Messages 做内部复制转发
 // - 也会读取 CommittedEntries 做控制面地址簿同步等联动逻辑
 type Ready struct {

@@ -58,7 +58,7 @@ type PebbleStore struct {
 // 生产环境通常会传入稳定的数据目录。
 func NewPebbleStore(path string) *PebbleStore {
 	if path == "" {
-		path = filepath.Join(os.TempDir(), "starmap-pebble-"+time.Now().Format("20060102150405.000000000"))
+		path = filepath.Join(os.TempDir(), "stellmap-pebble-"+time.Now().Format("20060102150405.000000000"))
 	}
 
 	return &PebbleStore{path: path}
@@ -443,7 +443,7 @@ func (s *PebbleStore) DeleteMemberAddress(ctx context.Context, nodeID uint64) er
 
 // ListMemberAddresses 返回当前已持久化的成员地址集合。
 //
-// starmapd 启动时会用它恢复 address book；Snapshot 导出时也会用它把成员地址带进快照。
+// stellmapd 启动时会用它恢复 address book；Snapshot 导出时也会用它把成员地址带进快照。
 func (s *PebbleStore) ListMemberAddresses(ctx context.Context) ([]MemberAddress, error) {
 	_ = ctx
 	db, err := s.getDB()

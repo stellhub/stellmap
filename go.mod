@@ -1,4 +1,4 @@
-module github.com/stellaraxis/starmap
+module github.com/stellhub/stellmap
 
 go 1.25.9
 

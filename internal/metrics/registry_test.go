@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 type fakeRegistryScanner struct {
@@ -98,7 +98,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 		t.Fatalf("gather registry metrics failed: %v", err)
 	}
 
-	assertGaugeValue(t, families, "starmap_registry_active_instances", map[string]string{
+	assertGaugeValue(t, families, "stellmap_registry_active_instances", map[string]string{
 		"namespace":         "prod",
 		"service":           "company.trade.order.order-center.api",
 		"organization":      "company",
@@ -108,7 +108,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 		"role":              "api",
 		"zone":              "az-1",
 	}, 2)
-	assertCounterValue(t, families, "starmap_registry_register_requests_total", map[string]string{
+	assertCounterValue(t, families, "stellmap_registry_register_requests_total", map[string]string{
 		"namespace":         "prod",
 		"service":           "company.trade.order.order-center.api",
 		"organization":      "company",
@@ -119,7 +119,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 		"zone":              "az-1",
 		"code":              "200",
 	}, 1)
-	assertCounterValue(t, families, "starmap_registry_heartbeat_requests_total", map[string]string{
+	assertCounterValue(t, families, "stellmap_registry_heartbeat_requests_total", map[string]string{
 		"namespace":         "prod",
 		"service":           "company.trade.order.order-center.api",
 		"organization":      "company",
@@ -130,7 +130,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 		"zone":              "az-1",
 		"code":              "200",
 	}, 1)
-	assertCounterValue(t, families, "starmap_registry_deregister_requests_total", map[string]string{
+	assertCounterValue(t, families, "stellmap_registry_deregister_requests_total", map[string]string{
 		"namespace":         "prod",
 		"service":           "company.trade.order.order-center.api",
 		"organization":      "company",
@@ -141,7 +141,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 		"zone":              "az-1",
 		"code":              "503",
 	}, 1)
-	assertGaugeValue(t, families, "starmap_registry_watch_sessions", map[string]string{
+	assertGaugeValue(t, families, "stellmap_registry_watch_sessions", map[string]string{
 		"watch_kind":               "instances",
 		"caller_namespace":         "prod",
 		"caller_service":           "company.trade.order.order-center.api",
@@ -161,7 +161,7 @@ func TestRegistryMetricsRegisterAndObserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gather registry metrics after watch close failed: %v", err)
 	}
-	assertGaugeValue(t, families, "starmap_registry_watch_sessions", map[string]string{
+	assertGaugeValue(t, families, "stellmap_registry_watch_sessions", map[string]string{
 		"watch_kind":               "instances",
 		"caller_namespace":         "prod",
 		"caller_service":           "company.trade.order.order-center.api",

@@ -19,40 +19,40 @@ func TestTransportMetricsRegisterAndObserve(t *testing.T) {
 	transportMetrics.HTTP().ObserveRequest("/healthz", "GET", 200, 25*time.Millisecond)
 	transportMetrics.HTTP().DecInflight("/healthz")
 
-	transportMetrics.GRPC().IncInflight("/starmap.v1.RaftTransport/Send", "unary")
-	transportMetrics.GRPC().ObserveRaftBatch("/starmap.v1.RaftTransport/Send", 3, 512)
-	transportMetrics.GRPC().ObserveSnapshotRecv("/starmap.v1.SnapshotService/Install", 2, 4096)
-	transportMetrics.GRPC().ObserveSnapshotSend("/starmap.v1.SnapshotService/Download", 4, 8192)
-	transportMetrics.GRPC().ObserveRequest("/starmap.v1.RaftTransport/Send", "unary", nil, 10*time.Millisecond)
-	transportMetrics.GRPC().DecInflight("/starmap.v1.RaftTransport/Send", "unary")
+	transportMetrics.GRPC().IncInflight("/stellmap.v1.RaftTransport/Send", "unary")
+	transportMetrics.GRPC().ObserveRaftBatch("/stellmap.v1.RaftTransport/Send", 3, 512)
+	transportMetrics.GRPC().ObserveSnapshotRecv("/stellmap.v1.SnapshotService/Install", 2, 4096)
+	transportMetrics.GRPC().ObserveSnapshotSend("/stellmap.v1.SnapshotService/Download", 4, 8192)
+	transportMetrics.GRPC().ObserveRequest("/stellmap.v1.RaftTransport/Send", "unary", nil, 10*time.Millisecond)
+	transportMetrics.GRPC().DecInflight("/stellmap.v1.RaftTransport/Send", "unary")
 
 	families, err := registry.Gather()
 	if err != nil {
 		t.Fatalf("gather metrics failed: %v", err)
 	}
 
-	assertCounterValue(t, families, "starmap_http_server_requests_total", map[string]string{
+	assertCounterValue(t, families, "stellmap_http_server_requests_total", map[string]string{
 		"route":  "/healthz",
 		"method": "GET",
 		"code":   "200",
 	}, 1)
-	assertGaugeValue(t, families, "starmap_http_server_inflight_requests", map[string]string{
+	assertGaugeValue(t, families, "stellmap_http_server_inflight_requests", map[string]string{
 		"route": "/healthz",
 	}, 0)
-	assertCounterValue(t, families, "starmap_grpc_server_requests_total", map[string]string{
-		"method":   "/starmap.v1.RaftTransport/Send",
+	assertCounterValue(t, families, "stellmap_grpc_server_requests_total", map[string]string{
+		"method":   "/stellmap.v1.RaftTransport/Send",
 		"rpc_type": "unary",
 		"code":     "OK",
 	}, 1)
-	assertHistogramCount(t, families, "starmap_grpc_server_raft_batch_messages", map[string]string{
-		"method": "/starmap.v1.RaftTransport/Send",
+	assertHistogramCount(t, families, "stellmap_grpc_server_raft_batch_messages", map[string]string{
+		"method": "/stellmap.v1.RaftTransport/Send",
 	}, 1)
-	assertHistogramCount(t, families, "starmap_grpc_server_snapshot_chunks", map[string]string{
-		"method":    "/starmap.v1.SnapshotService/Install",
+	assertHistogramCount(t, families, "stellmap_grpc_server_snapshot_chunks", map[string]string{
+		"method":    "/stellmap.v1.SnapshotService/Install",
 		"direction": "recv",
 	}, 1)
-	assertHistogramCount(t, families, "starmap_grpc_server_snapshot_bytes", map[string]string{
-		"method":    "/starmap.v1.SnapshotService/Download",
+	assertHistogramCount(t, families, "stellmap_grpc_server_snapshot_bytes", map[string]string{
+		"method":    "/stellmap.v1.SnapshotService/Download",
 		"direction": "send",
 	}, 1)
 }

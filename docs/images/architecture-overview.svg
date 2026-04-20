@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1360" height="900" viewBox="0 0 1360 900" role="img" aria-labelledby="title desc">
-  <title id="title">StarMap architecture overview</title>
-  <desc id="desc">Architecture diagram for StarMap showing public HTTP, admin HTTP, internal gRPC, RaftNode, storage, and peer transport.</desc>
+  <title id="title">StellMap architecture overview</title>
+  <desc id="desc">Architecture diagram for StellMap showing public HTTP, admin HTTP, internal gRPC, RaftNode, storage, and peer transport.</desc>
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#f6f8fb"/>
@@ -33,8 +33,8 @@
 
   <rect x="0" y="0" width="1360" height="900" fill="url(#bg)"/>
 
-  <text x="68" y="64" class="title">StarMap Runtime Architecture</text>
-  <text x="68" y="92" class="subtitle">A single starmapd node exposes public HTTP, admin HTTP, and internal gRPC on top of the same Raft-driven state machine.</text>
+  <text x="68" y="64" class="title">StellMap Runtime Architecture</text>
+  <text x="68" y="92" class="subtitle">A single stellmapd node exposes public HTTP, admin HTTP, and internal gRPC on top of the same Raft-driven state machine.</text>
 
   <rect x="46" y="150" width="210" height="116" rx="18" class="external"/>
   <text x="70" y="192" class="box-title">Business Clients</text>
@@ -42,7 +42,7 @@
   <text x="70" y="242" class="box-text">Query / Watch</text>
 
   <rect x="46" y="352" width="210" height="116" rx="18" class="external"/>
-  <text x="70" y="394" class="box-title">starmapctl</text>
+  <text x="70" y="394" class="box-title">stellmapctl</text>
   <text x="70" y="422" class="box-text">Status</text>
   <text x="70" y="444" class="box-text">ConfChange / Transfer</text>
 
@@ -53,8 +53,8 @@
   <text x="70" y="668" class="box-text">Replication Watch</text>
 
   <rect x="308" y="118" width="1000" height="708" rx="28" class="panel"/>
-  <text x="342" y="158" class="section">StarMap Node (starmapd)</text>
-  <text x="342" y="182" class="subtitle">cmd/starmapd wires listeners, runtime services, address book, watch hub, and Raft-backed persistence.</text>
+  <text x="342" y="158" class="section">StellMap Node (stellmapd)</text>
+  <text x="342" y="182" class="subtitle">cmd/stellmapd wires listeners, runtime services, address book, watch hub, and Raft-backed persistence.</text>
 
   <rect x="342" y="220" width="234" height="92" rx="16" class="listener"/>
   <text x="364" y="254" class="box-title">Public HTTP</text>

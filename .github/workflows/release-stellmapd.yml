@@ -1,10 +1,10 @@
-# 这个工作流用于把 starmapd/starmapctl 的发布制品上传到一台或多台 CVM。
+# 这个工作流用于把 stellmapd/stellmapctl 的发布制品上传到一台或多台 CVM。
 # 关键目标：
-# 1. 单机部署时，直接使用仓库中的原始 starmapd.toml。
-# 2. 多机部署时，根据 VM_HOSTS 动态为每台机器渲染自己的 starmapd.toml。
+# 1. 单机部署时，直接使用仓库中的原始 stellmapd.toml。
+# 2. 多机部署时，根据 VM_HOSTS 动态为每台机器渲染自己的 stellmapd.toml。
 # 3. 上传时按机器分发各自 bundle，避免多台机器共用同一份配置。
-# 4. 首次多机部署走“初始集群 bootstrap”模式，不依赖 starmapctl add-learner/promote。
-name: Release StarMap To CVM
+# 4. 首次多机部署走“初始集群 bootstrap”模式，不依赖 stellmapctl add-learner/promote。
+name: Release StellMap To CVM
 
 on:
   # 支持手工触发，便于日常发布、灰度和调试。
@@ -26,9 +26,9 @@ on:
         default: ""
       # 远端 systemd 服务名，仅用于失败时抓取调试信息。
       remote_service_name:
-        description: "远程 systemd 服务名；用于启动失败时抓取日志，默认 starmapd"
+        description: "远程 systemd 服务名；用于启动失败时抓取日志，默认 stellmapd"
         required: false
-        default: "starmapd"
+        default: "stellmapd"
   # 支持 tag 发布，约定 tag 形如 v1.0.0。
   push:
     tags:
@@ -57,7 +57,7 @@ jobs:
       VM_USER: ${{ vars.VM_USER || secrets.VM_USER }}
       VM_PORT: ${{ vars.VM_PORT || secrets.VM_PORT || '22' }}
       REMOTE_POST_UPLOAD_CMD: ${{ github.event.inputs.remote_post_upload_cmd || vars.REMOTE_POST_UPLOAD_CMD }}
-      REMOTE_SERVICE_NAME: ${{ github.event.inputs.remote_service_name || vars.REMOTE_SERVICE_NAME || 'starmapd' }}
+      REMOTE_SERVICE_NAME: ${{ github.event.inputs.remote_service_name || vars.REMOTE_SERVICE_NAME || 'stellmapd' }}
       # SSH 支持两种认证方式：
       # 1. 私钥 VM_SSH_KEY
       # 2. 密码 VM_SSH_PASSWORD
@@ -106,17 +106,17 @@ jobs:
 
           CGO_ENABLED=0 GOOS="${TARGET_OS}" GOARCH="${TARGET_ARCH}" \
             go build -trimpath -ldflags="-s -w" \
-            -o dist/release/starmapd \
-            ./cmd/starmapd
+            -o dist/release/stellmapd \
+            ./cmd/stellmapd
 
           CGO_ENABLED=0 GOOS="${TARGET_OS}" GOARCH="${TARGET_ARCH}" \
             go build -trimpath -ldflags="-s -w" \
-            -o dist/release/starmapctl \
-            ./cmd/starmapctl
+            -o dist/release/stellmapctl \
+            ./cmd/stellmapctl
 
-          cp config/starmapd.toml dist/release/starmapd.toml
+          cp config/stellmapd.toml dist/release/stellmapd.toml
           cp deploy/start.sh dist/release/start.sh
-          chmod +x dist/release/starmapd dist/release/starmapctl dist/release/start.sh
+          chmod +x dist/release/stellmapd dist/release/stellmapctl dist/release/start.sh
 
       # 根据 VM_HOSTS 渲染部署 bundle。
       #
@@ -124,15 +124,15 @@ jobs:
       # dist/deploy-bundles/
       #   manifest.tsv                # 记录 node_id -> host -> bundle_dir
       #   node-1/
-      #     starmapd
-      #     starmapctl
+      #     stellmapd
+      #     stellmapctl
       #     start.sh
-      #     starmapd.toml
+      #     stellmapd.toml
       #   node-2/
       #     ...
       #
       # 行为分两种：
-      # 1. 单机：直接使用原始 starmapd.toml，不做改写
+      # 1. 单机：直接使用原始 stellmapd.toml，不做改写
       # 2. 多机：动态生成每台机器自己的配置
       - name: Render deployment bundles
         shell: bash
@@ -215,7 +215,7 @@ jobs:
 
             template="$(trim "${template}")"
             if [[ -z "${template}" ]]; then
-              printf '/var/lib/starmap/node-%s' "${node_id}"
+              printf '/var/lib/stellmap/node-%s' "${node_id}"
               return
             fi
 
@@ -269,8 +269,8 @@ jobs:
           copy_common_bundle_files() {
             local bundle_dir="$1"
             mkdir -p "${bundle_dir}"
-            install -m 0755 dist/release/starmapd "${bundle_dir}/starmapd"
-            install -m 0755 dist/release/starmapctl "${bundle_dir}/starmapctl"
+            install -m 0755 dist/release/stellmapd "${bundle_dir}/stellmapd"
+            install -m 0755 dist/release/stellmapctl "${bundle_dir}/stellmapctl"
             install -m 0755 dist/release/start.sh "${bundle_dir}/start.sh"
           }
 
@@ -279,13 +279,13 @@ jobs:
           if [[ "${host_count}" -eq 1 ]]; then
             bundle_dir="${bundle_root}/node-1"
             copy_common_bundle_files "${bundle_dir}"
-            install -m 0644 dist/release/starmapd.toml "${bundle_dir}/starmapd.toml"
+            install -m 0644 dist/release/stellmapd.toml "${bundle_dir}/stellmapd.toml"
             printf '1\t%s\t%s\n' "${host_array[0]}" "${bundle_dir}" >> "${manifest_path}"
-            echo "==> single host deployment bundle uses original starmapd.toml"
+            echo "==> single host deployment bundle uses original stellmapd.toml"
           else
             # 多机模式：
             # 从模板读取共享参数，并根据 VM_HOSTS 动态拼出完整集群配置。
-            template_file="dist/release/starmapd.toml"
+            template_file="dist/release/stellmapd.toml"
             cluster_id="$(toml_get "${template_file}" "node" "cluster_id")"
             region="$(toml_get "${template_file}" "node" "region")"
             data_dir_template="$(toml_get "${template_file}" "node" "data_dir")"
@@ -338,8 +338,8 @@ jobs:
               data_dir="$(render_data_dir "${data_dir_template}" "${node_id}")"
 
               copy_common_bundle_files "${bundle_dir}"
-              # 这里直接生成目标机器最终会使用的 starmapd.toml。
-              cat > "${bundle_dir}/starmapd.toml" <<EOF
+              # 这里直接生成目标机器最终会使用的 stellmapd.toml。
+              cat > "${bundle_dir}/stellmapd.toml" <<EOF
 [node]
 id = ${node_id}
 cluster_id = ${cluster_id}
@@ -531,7 +531,7 @@ EOF
             fi
 
             echo "==> [${host}] marking binaries executable"
-            if ! run_ssh "${host}" "chmod +x '${REMOTE_DIR}/starmapd' '${REMOTE_DIR}/starmapctl' '${REMOTE_DIR}/start.sh'"; then
+            if ! run_ssh "${host}" "chmod +x '${REMOTE_DIR}/stellmapd' '${REMOTE_DIR}/stellmapctl' '${REMOTE_DIR}/start.sh'"; then
               echo "ERROR: [${host}] chmod failed after upload"
               host_failures=$((host_failures + 1))
               continue
@@ -564,7 +564,7 @@ EOF
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: starmapd-${{ steps.meta.outputs.version }}
+          name: stellmapd-${{ steps.meta.outputs.version }}
           path: |
             dist/release
             dist/deploy-bundles

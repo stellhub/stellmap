@@ -6,9 +6,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/snapshot"
-	grpctransport "github.com/stellaraxis/starmap/internal/transport/grpc"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/snapshot"
+	grpctransport "github.com/stellhub/stellmap/internal/transport/grpc"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
 

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 const (
@@ -80,19 +80,19 @@ func NewRegistryMetrics(scanner RegistryScanner) *RegistryMetrics {
 	return &RegistryMetrics{
 		activeCollector: newActiveInstancesCollector(scanner),
 		registerRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "starmap_registry_register_requests_total",
+			Name: "stellmap_registry_register_requests_total",
 			Help: "Total registry register requests grouped by caller identity.",
 		}, requestLabels),
 		heartbeatRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "starmap_registry_heartbeat_requests_total",
+			Name: "stellmap_registry_heartbeat_requests_total",
 			Help: "Total registry heartbeat requests grouped by caller identity.",
 		}, requestLabels),
 		deregisterRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "starmap_registry_deregister_requests_total",
+			Name: "stellmap_registry_deregister_requests_total",
 			Help: "Total registry deregister requests grouped by caller identity.",
 		}, requestLabels),
 		watchSessions: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "starmap_registry_watch_sessions",
+			Name: "stellmap_registry_watch_sessions",
 			Help: "Current watch sessions grouped by caller identity and target.",
 		}, watchLabels),
 	}
@@ -210,7 +210,7 @@ func newActiveInstancesCollector(scanner RegistryScanner) *activeInstancesCollec
 	return &activeInstancesCollector{
 		scanner: scanner,
 		desc: prometheus.NewDesc(
-			"starmap_registry_active_instances",
+			"stellmap_registry_active_instances",
 			"Current active registry instances grouped by client identity.",
 			[]string{
 				"namespace",

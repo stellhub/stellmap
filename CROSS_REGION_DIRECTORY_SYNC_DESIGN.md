@@ -1,14 +1,14 @@
-# StarMap 跨 Region 目录同步方案设计
+# StellMap 跨 Region 目录同步方案设计
 
 ## 1. 背景
 
-当前 `StarMap` 已具备以下能力：
+当前 `StellMap` 已具备以下能力：
 
 - 单 `Raft Group` 内的强一致实例注册、注销、心跳与查询
 - 基于 `SSE` 的实例变化 watch：`GET /api/v1/registry/watch`
 - 以已提交日志索引作为 `revision` 的增量事件流
 
-当前 `StarMap` 还不具备以下能力：
+当前 `StellMap` 还不具备以下能力：
 
 - 跨共识域、跨 `region` 的目录同步
 - 远端目录投影与本地原生目录的分层存储
@@ -16,9 +16,9 @@
 - 每个远端源的同步水位持久化与恢复
 - 面向跨 `region` 服务发现的聚合查询语义
 
-因此，如果部署形态是“每个 `region` 一套独立 StarMap 集群”，那么仅靠现有能力，客户端无法只查询本地 StarMap 就同时得到远端 `region` 的服务目录。
+因此，如果部署形态是“每个 `region` 一套独立 StellMap 集群”，那么仅靠现有能力，客户端无法只查询本地 StellMap 就同时得到远端 `region` 的服务目录。
 
-本设计的目标，就是在不打破“每个 `region` 独立共识域”这一前提下，为 StarMap 增加一套 **跨 Region 目录同步** 能力。
+本设计的目标，就是在不打破“每个 `region` 独立共识域”这一前提下，为 StellMap 增加一套 **跨 Region 目录同步** 能力。
 
 ## 2. 设计目标
 
@@ -44,10 +44,10 @@
 整体思路分成四层：
 
 1. **源集群**
-   每个 `region` 的 StarMap 都是本地实例注册的权威源。
+   每个 `region` 的 StellMap 都是本地实例注册的权威源。
 
 2. **同步器**
-   本地部署一个 `replicator`，去订阅远端 StarMap 的 `SSE watch`。
+   本地部署一个 `replicator`，去订阅远端 StellMap 的 `SSE watch`。
 
 3. **复制视图**
    同步到本地的数据不写入原生注册前缀，而是写入单独的“复制目录前缀”。
@@ -393,8 +393,8 @@ GET /internal/v1/replication/watch
 
 请求头建议：
 
-- `X-StarMap-Replication-Region`
-- `X-StarMap-Replication-Cluster`
+- `X-StellMap-Replication-Region`
+- `X-StellMap-Replication-Cluster`
 - `Authorization: Bearer <replication-token>`
 
 ## 7.5 snapshot + 增量同步流程
@@ -471,7 +471,7 @@ GET /internal/v1/replication/watch
 ```text
 replication.targets[0].region=cn-bj
 replication.targets[0].clusterId=bj-prod-01
-replication.targets[0].watchURL=http://bj-starmap:8080
+replication.targets[0].watchURL=http://bj-stellmap:8080
 replication.targets[0].services=prod/order-service,prod/payment-service
 ```
 
@@ -671,12 +671,12 @@ crossRegionMode=gateway
 
 建议新增以下指标：
 
-- `starmap_replication_connected{source_region,source_cluster}`
-- `starmap_replication_last_applied_revision{source_region,source_cluster}`
-- `starmap_replication_lag_seconds{source_region,source_cluster}`
-- `starmap_replication_snapshot_total{source_region,source_cluster}`
-- `starmap_replication_event_total{source_region,source_cluster,type}`
-- `starmap_replication_error_total{source_region,source_cluster}`
+- `stellmap_replication_connected{source_region,source_cluster}`
+- `stellmap_replication_last_applied_revision{source_region,source_cluster}`
+- `stellmap_replication_lag_seconds{source_region,source_cluster}`
+- `stellmap_replication_snapshot_total{source_region,source_cluster}`
+- `stellmap_replication_event_total{source_region,source_cluster,type}`
+- `stellmap_replication_error_total{source_region,source_cluster}`
 
 建议新增以下控制面查询：
 
@@ -733,7 +733,7 @@ crossRegionMode=gateway
 - `internal/storage`
   - 增加复制目录和复制检查点的持久化能力
 
-- `cmd/starmapd`
+- `cmd/stellmapd`
   - 增加 replication target 配置
 
 ## 17. 第一阶段实现清单
@@ -922,7 +922,7 @@ type Replicator struct {
 
 ## 17.5 新增配置项
 
-### `cmd/starmapd`
+### `cmd/stellmapd`
 
 建议新增配置：
 
@@ -941,7 +941,7 @@ type Replicator struct {
 第一阶段可以先使用一个简单的字符串格式，例如：
 
 ```text
---replication-targets-file=/etc/starmapd/replication-targets.json
+--replication-targets-file=/etc/stellmapd/replication-targets.json
 ```
 
 后续再改成更清晰的多参数或配置文件格式。
@@ -999,11 +999,11 @@ type Replicator struct {
 - 同步中断后会退避重连
 - checkpoint 在事件成功写入后更新
 
-### `cmd/starmapd`
+### `cmd/stellmapd`
 
 新增集成测试建议：
 
-- 两套独立 StarMap，A 作为源，B 作为目标
+- 两套独立 StellMap，A 作为源，B 作为目标
 - A 注册实例，B 通过同步看到复制目录
 - A 删除实例，B 最终删除复制目录
 - B 的公共客户端 watch 不会收到复制目录事件
@@ -1019,7 +1019,7 @@ type Replicator struct {
 
 ## 18. 结论
 
-StarMap 的跨 `region` 目录同步，不应该通过“跨 `region` 组成一个更大的 Raft 共识域”来实现，而应该通过：
+StellMap 的跨 `region` 目录同步，不应该通过“跨 `region` 组成一个更大的 Raft 共识域”来实现，而应该通过：
 
 - 每个 `region` 独立共识
 - 复用 `SSE watch` 做异步目录同步

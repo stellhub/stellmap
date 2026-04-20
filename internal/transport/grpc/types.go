@@ -1,6 +1,6 @@
 package grpctransport
 
-import starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
+import stellmapv1 "github.com/stellhub/stellmap/api/gen/go/stellmap/v1"
 
 // RaftEnvelope 表示一条节点间传输的内部 Raft 消息。
 //
@@ -65,23 +65,23 @@ type SnapshotChunk struct {
 // toProtoRaftBatch 将本地领域模型转换成 protobuf 请求结构。
 //
 // 发送侧会在真正发 gRPC 前调用它，把内部定义的 batch 转成生成代码需要的 pb 类型。
-func toProtoRaftBatch(batch RaftMessageBatch) *starmapv1.RaftMessageBatch {
-	items := make([]*starmapv1.RaftEnvelope, 0, len(batch.Messages))
+func toProtoRaftBatch(batch RaftMessageBatch) *stellmapv1.RaftMessageBatch {
+	items := make([]*stellmapv1.RaftEnvelope, 0, len(batch.Messages))
 	for _, message := range batch.Messages {
-		items = append(items, &starmapv1.RaftEnvelope{
+		items = append(items, &stellmapv1.RaftEnvelope{
 			From:    message.From,
 			To:      message.To,
 			Payload: append([]byte(nil), message.Payload...),
 		})
 	}
 
-	return &starmapv1.RaftMessageBatch{Messages: items}
+	return &stellmapv1.RaftMessageBatch{Messages: items}
 }
 
 // fromProtoRaftBatch 把 protobuf 请求结构还原为本地领域模型。
 //
 // 服务端收到 gRPC 请求后会调用它，再把结果交给上层 service 处理。
-func fromProtoRaftBatch(batch *starmapv1.RaftMessageBatch) RaftMessageBatch {
+func fromProtoRaftBatch(batch *stellmapv1.RaftMessageBatch) RaftMessageBatch {
 	if batch == nil {
 		return RaftMessageBatch{}
 	}
@@ -102,8 +102,8 @@ func fromProtoRaftBatch(batch *starmapv1.RaftMessageBatch) RaftMessageBatch {
 }
 
 // toProtoSnapshotMetadata 将本地快照元信息转换成 protobuf 消息。
-func toProtoSnapshotMetadata(meta SnapshotMetadata) *starmapv1.SnapshotMetadata {
-	return &starmapv1.SnapshotMetadata{
+func toProtoSnapshotMetadata(meta SnapshotMetadata) *stellmapv1.SnapshotMetadata {
+	return &stellmapv1.SnapshotMetadata{
 		Term:      meta.Term,
 		Index:     meta.Index,
 		ConfState: append([]byte(nil), meta.ConfState...),
@@ -113,7 +113,7 @@ func toProtoSnapshotMetadata(meta SnapshotMetadata) *starmapv1.SnapshotMetadata 
 }
 
 // fromProtoSnapshotMetadata 将 protobuf 快照元信息转换成本地结构。
-func fromProtoSnapshotMetadata(meta *starmapv1.SnapshotMetadata) SnapshotMetadata {
+func fromProtoSnapshotMetadata(meta *stellmapv1.SnapshotMetadata) SnapshotMetadata {
 	if meta == nil {
 		return SnapshotMetadata{}
 	}
@@ -128,8 +128,8 @@ func fromProtoSnapshotMetadata(meta *starmapv1.SnapshotMetadata) SnapshotMetadat
 }
 
 // toProtoSnapshotChunk 将本地快照分片转换成安装快照流使用的 protobuf 消息。
-func toProtoSnapshotChunk(chunk SnapshotChunk) *starmapv1.InstallSnapshotChunk {
-	return &starmapv1.InstallSnapshotChunk{
+func toProtoSnapshotChunk(chunk SnapshotChunk) *stellmapv1.InstallSnapshotChunk {
+	return &stellmapv1.InstallSnapshotChunk{
 		Metadata: toProtoSnapshotMetadata(chunk.Metadata),
 		Data:     append([]byte(nil), chunk.Data...),
 		Offset:   chunk.Offset,
@@ -138,7 +138,7 @@ func toProtoSnapshotChunk(chunk SnapshotChunk) *starmapv1.InstallSnapshotChunk {
 }
 
 // fromProtoInstallChunk 将安装快照流中的 protobuf 分片还原为本地结构。
-func fromProtoInstallChunk(chunk *starmapv1.InstallSnapshotChunk) SnapshotChunk {
+func fromProtoInstallChunk(chunk *stellmapv1.InstallSnapshotChunk) SnapshotChunk {
 	if chunk == nil {
 		return SnapshotChunk{}
 	}
@@ -152,7 +152,7 @@ func fromProtoInstallChunk(chunk *starmapv1.InstallSnapshotChunk) SnapshotChunk 
 }
 
 // fromProtoDownloadChunk 将下载快照流中的 protobuf 分片还原为本地结构。
-func fromProtoDownloadChunk(chunk *starmapv1.DownloadSnapshotChunk) SnapshotChunk {
+func fromProtoDownloadChunk(chunk *stellmapv1.DownloadSnapshotChunk) SnapshotChunk {
 	if chunk == nil {
 		return SnapshotChunk{}
 	}

@@ -9,21 +9,21 @@ Usage:
 Or override install options:
   sudo bash /data/start.sh \
     --source-dir /data \
-    --service-name starmapd-node-1 \
-    --install-root /opt/starmap \
-    --config-dir /etc/starmapd
+    --service-name stellmapd-node-1 \
+    --install-root /opt/stellmap \
+    --config-dir /etc/stellmapd
 
 Options:
   --source-dir PATH            源文件目录，默认脚本所在目录
-  --binary-file PATH           starmapd 二进制路径，默认 {source-dir}/starmapd
-  --ctl-file PATH              starmapctl 二进制路径，默认 {source-dir}/starmapctl
-  --config-file PATH           启动配置文件路径，默认 {source-dir}/starmapd.toml
-  --service-name NAME          systemd 服务名，默认 starmapd
-  --install-root PATH          安装根目录，默认 /opt/starmap
-  --config-dir PATH            配置目录，默认 /etc/starmapd
-  --config-file-name NAME      安装后的配置文件名，默认 starmapd.toml
-  --run-user USER              运行用户，默认 starmap
-  --run-group GROUP            运行组，默认 starmap
+  --binary-file PATH           stellmapd 二进制路径，默认 {source-dir}/stellmapd
+  --ctl-file PATH              stellmapctl 二进制路径，默认 {source-dir}/stellmapctl
+  --config-file PATH           启动配置文件路径，默认 {source-dir}/stellmapd.toml
+  --service-name NAME          systemd 服务名，默认 stellmapd
+  --install-root PATH          安装根目录，默认 /opt/stellmap
+  --config-dir PATH            配置目录，默认 /etc/stellmapd
+  --config-file-name NAME      安装后的配置文件名，默认 stellmapd.toml
+  --run-user USER              运行用户，默认 stellmap
+  --run-group GROUP            运行组，默认 stellmap
   --health-url URL             健康检查地址，默认根据配置中的 http_addr 推导
   --health-timeout SEC         健康检查总超时秒数，默认 60
   --health-interval SEC        健康检查重试间隔秒数，默认 2
@@ -33,8 +33,8 @@ Options:
   -h, --help                   查看帮助
 
 Behavior:
-  1. 从本地目录读取 starmapd、starmapctl、starmapd.toml。
-  2. 安装到 /opt/starmap/bin 和 /etc/starmapd。
+  1. 从本地目录读取 stellmapd、stellmapctl、stellmapd.toml。
+  2. 安装到 /opt/stellmap/bin 和 /etc/stellmapd。
   3. 自动创建 systemd unit 并启动/重启服务。
 EOF
 }
@@ -75,7 +75,7 @@ ensure_service_user() {
     useradd \
       --system \
       --gid "$group" \
-      --home-dir /var/lib/starmap \
+      --home-dir /var/lib/stellmap \
       --create-home \
       --shell "$(detect_nologin_shell)" \
       "$user"
@@ -168,7 +168,7 @@ write_unit() {
 
   cat >"${unit_path}" <<EOF
 [Unit]
-Description=StarMap service ${SERVICE_NAME}
+Description=StellMap service ${SERVICE_NAME}
 After=network-online.target
 Wants=network-online.target
 
@@ -192,12 +192,12 @@ SOURCE_DIR="${SCRIPT_DIR}"
 BINARY_FILE=""
 CTL_FILE=""
 CONFIG_FILE=""
-SERVICE_NAME="starmapd"
-INSTALL_ROOT="/opt/starmap"
-CONFIG_DIR="/etc/starmapd"
-CONFIG_FILE_NAME="starmapd.toml"
-RUN_USER="starmap"
-RUN_GROUP="starmap"
+SERVICE_NAME="stellmapd"
+INSTALL_ROOT="/opt/stellmap"
+CONFIG_DIR="/etc/stellmapd"
+CONFIG_FILE_NAME="stellmapd.toml"
+RUN_USER="stellmap"
+RUN_GROUP="stellmap"
 HEALTH_URL=""
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
@@ -296,17 +296,17 @@ require_cmd groupadd
 
 SOURCE_DIR="$(cd "${SOURCE_DIR}" && pwd)"
 if [[ -z "${BINARY_FILE}" ]]; then
-  BINARY_FILE="${SOURCE_DIR}/starmapd"
+  BINARY_FILE="${SOURCE_DIR}/stellmapd"
 fi
 if [[ -z "${CTL_FILE}" ]]; then
-  CTL_FILE="${SOURCE_DIR}/starmapctl"
+  CTL_FILE="${SOURCE_DIR}/stellmapctl"
 fi
 if [[ -z "${CONFIG_FILE}" ]]; then
-  CONFIG_FILE="${SOURCE_DIR}/starmapd.toml"
+  CONFIG_FILE="${SOURCE_DIR}/stellmapd.toml"
 fi
 
-[[ -x "${BINARY_FILE}" ]] || die "starmapd binary not found or not executable: ${BINARY_FILE}"
-[[ -x "${CTL_FILE}" ]] || die "starmapctl binary not found or not executable: ${CTL_FILE}"
+[[ -x "${BINARY_FILE}" ]] || die "stellmapd binary not found or not executable: ${BINARY_FILE}"
+[[ -x "${CTL_FILE}" ]] || die "stellmapctl binary not found or not executable: ${CTL_FILE}"
 [[ -f "${CONFIG_FILE}" ]] || die "config file not found: ${CONFIG_FILE}"
 
 DATA_DIR="$(trim "$(toml_get "${CONFIG_FILE}" "node" "data_dir")")"
@@ -319,8 +319,8 @@ if [[ -z "${HEALTH_URL}" ]]; then
 fi
 
 BIN_DIR="${INSTALL_ROOT}/bin"
-BINARY_PATH="${BIN_DIR}/starmapd"
-CTL_PATH="${BIN_DIR}/starmapctl"
+BINARY_PATH="${BIN_DIR}/stellmapd"
+CTL_PATH="${BIN_DIR}/stellmapctl"
 CONFIG_PATH="${CONFIG_DIR}/${CONFIG_FILE_NAME}"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 

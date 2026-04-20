@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/metrics"
+	"github.com/stellhub/stellmap/internal/metrics"
 )
 
 // RegistryHandler 描述注册中心 HTTP 数据面需要实现的能力。
@@ -68,7 +68,7 @@ func NewPublicServer(registry RegistryHandler, health HealthHandler) *Server {
 // NewAdminServer 创建独立的 admin HTTP 服务骨架。
 //
 // admin server 只承载状态查询、成员变更和 Leader 转移等控制面能力，
-// 由 starmapctl 这类受控入口使用，不对业务客户端开放。
+// 由 stellmapctl 这类受控入口使用，不对业务客户端开放。
 func NewAdminServer(control ControlHandler) *Server {
 	mux := http.NewServeMux()
 	routes := make(map[string]struct{})

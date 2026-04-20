@@ -14,7 +14,7 @@ const (
 	snapshotDirectionSend = "send"
 )
 
-// TransportMetrics 收敛 StarMap transport 层指标。
+// TransportMetrics 收敛 StellMap transport 层指标。
 func NewTransportMetrics() *TransportMetrics {
 	return &TransportMetrics{
 		http: newHTTPServerMetrics(),
@@ -74,15 +74,15 @@ type HTTPServerMetrics struct {
 func newHTTPServerMetrics() *HTTPServerMetrics {
 	return &HTTPServerMetrics{
 		inflight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "starmap_http_server_inflight_requests",
+			Name: "stellmap_http_server_inflight_requests",
 			Help: "Current in-flight HTTP requests grouped by route.",
 		}, []string{"route"}),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "starmap_http_server_requests_total",
-			Help: "Total HTTP requests handled by StarMap.",
+			Name: "stellmap_http_server_requests_total",
+			Help: "Total HTTP requests handled by StellMap.",
 		}, []string{"route", "method", "code"}),
 		latency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_http_server_request_duration_seconds",
+			Name:    "stellmap_http_server_request_duration_seconds",
 			Help:    "HTTP request latency in seconds.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"route", "method", "code"}),
@@ -137,35 +137,35 @@ type GRPCServerMetrics struct {
 func newGRPCServerMetrics() *GRPCServerMetrics {
 	return &GRPCServerMetrics{
 		inflight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "starmap_grpc_server_inflight_requests",
+			Name: "stellmap_grpc_server_inflight_requests",
 			Help: "Current in-flight gRPC requests grouped by method and rpc type.",
 		}, []string{"method", "rpc_type"}),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "starmap_grpc_server_requests_total",
-			Help: "Total gRPC requests handled by StarMap.",
+			Name: "stellmap_grpc_server_requests_total",
+			Help: "Total gRPC requests handled by StellMap.",
 		}, []string{"method", "rpc_type", "code"}),
 		latency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_grpc_server_request_duration_seconds",
+			Name:    "stellmap_grpc_server_request_duration_seconds",
 			Help:    "gRPC request latency in seconds.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"method", "rpc_type", "code"}),
 		raftBatchMessages: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_grpc_server_raft_batch_messages",
+			Name:    "stellmap_grpc_server_raft_batch_messages",
 			Help:    "Number of raft messages carried by a single gRPC batch.",
 			Buckets: []float64{1, 2, 4, 8, 16, 32, 64, 128},
 		}, []string{"method"}),
 		raftBatchBytes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_grpc_server_raft_batch_payload_bytes",
+			Name:    "stellmap_grpc_server_raft_batch_payload_bytes",
 			Help:    "Serialized raft payload bytes carried by a single gRPC batch.",
 			Buckets: []float64{256, 1024, 4096, 16384, 65536, 262144, 1048576},
 		}, []string{"method"}),
 		snapshotChunkCount: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_grpc_server_snapshot_chunks",
+			Name:    "stellmap_grpc_server_snapshot_chunks",
 			Help:    "Number of snapshot chunks sent or received in a single gRPC request.",
 			Buckets: []float64{1, 2, 4, 8, 16, 32, 64, 128, 256},
 		}, []string{"method", "direction"}),
 		snapshotBytes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "starmap_grpc_server_snapshot_bytes",
+			Name:    "stellmap_grpc_server_snapshot_bytes",
 			Help:    "Snapshot bytes sent or received in a single gRPC request.",
 			Buckets: []float64{64 << 10, 256 << 10, 1 << 20, 4 << 20, 16 << 20, 64 << 20, 256 << 20, 1 << 30},
 		}, []string{"method", "direction"}),

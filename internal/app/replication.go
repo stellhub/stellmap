@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/storage"
-	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/storage"
+	httptransport "github.com/stellhub/stellmap/internal/transport/http"
 )
 
 const replicationRetryDelay = 2 * time.Second

@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseFlagsLoadsTOMLAndAllowsCLIOverride(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "starmapd.toml")
+	configPath := filepath.Join(t.TempDir(), "stellmapd.toml")
 	content := `
 [node]
 id = 1
@@ -40,7 +40,7 @@ cleanup_interval = "3s"
 cleanup_delete_limit = 64
 
 [replication]
-targets_file = "/etc/starmapd/targets.json"
+targets_file = "/etc/stellmapd/targets.json"
 `
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config file failed: %v", err)
@@ -51,7 +51,7 @@ targets_file = "/etc/starmapd/targets.json"
 		os.Args = originalArgs
 	}()
 	os.Args = []string{
-		"starmapd",
+		"stellmapd",
 		"--config", configPath,
 		"--http-addr", "0.0.0.0:28080",
 		"--admin-token", "cli-admin",

@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/storage"
-	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/storage"
+	httptransport "github.com/stellhub/stellmap/internal/transport/http"
 )
 
 type testSuccessEnvelope struct {
@@ -31,7 +31,7 @@ type testSuccessEnvelope struct {
 
 const testAdminToken = "test-admin-token"
 
-func TestStarmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
+func TestStellmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -142,7 +142,7 @@ func TestStarmapdThreeNodeClusterWriteAndRecovery(t *testing.T) {
 	}, 10*time.Second, fmt.Sprintf("node-%d recover registry instances", restartNodeID), "checkout-1", "checkout-2")
 }
 
-func TestStarmapdPersistDynamicMemberAddressesAcrossRestart(t *testing.T) {
+func TestStellmapdPersistDynamicMemberAddressesAcrossRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -203,7 +203,7 @@ func TestStarmapdPersistDynamicMemberAddressesAcrossRestart(t *testing.T) {
 	waitForMemberAddress(t, "http://"+adminAddr, testAdminToken, 2, memberRequest.HTTPAddr, memberRequest.GRPCAddr, memberRequest.AdminAddr, 5*time.Second)
 }
 
-func TestStarmapdAdminRequiresToken(t *testing.T) {
+func TestStellmapdAdminRequiresToken(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -750,14 +750,14 @@ func TestCrossRegionReplicationSyncsDirectoryWithoutLeakingToPublicWatch(t *test
 	}
 
 	metricsBody := waitForMetricsBody(t, "http://"+targetHTTPAddr+"/metrics", 5*time.Second, func(body string) bool {
-		return strings.Contains(body, "starmap_replication_connected{") &&
+		return strings.Contains(body, "stellmap_replication_connected{") &&
 			strings.Contains(body, `namespace="prod"`) &&
 			strings.Contains(body, `service="order-service"`) &&
 			strings.Contains(body, `source_cluster="401"`) &&
 			strings.Contains(body, `source_region="cn-sh"`) &&
 			strings.Contains(body, " 1")
 	})
-	if !strings.Contains(metricsBody, "starmap_replication_last_applied_revision") {
+	if !strings.Contains(metricsBody, "stellmap_replication_last_applied_revision") {
 		t.Fatalf("expected replication metrics to contain revision gauge, body=%s", metricsBody)
 	}
 
@@ -942,7 +942,7 @@ func TestPrometheusSDReturnsServiceTargetsAndOptionalSelfTargets(t *testing.T) {
 	if targets[0].Labels["target_kind"] != "service_instance" {
 		t.Fatalf("unexpected target kind: %+v", targets[0].Labels)
 	}
-	if targets[0].Labels["starmap_label_color"] != "gray" {
+	if targets[0].Labels["stellmap_label_color"] != "gray" {
 		t.Fatalf("expected transformed service label, got %+v", targets[0].Labels)
 	}
 
@@ -952,10 +952,10 @@ func TestPrometheusSDReturnsServiceTargetsAndOptionalSelfTargets(t *testing.T) {
 	foundSelf := false
 	foundService := false
 	for _, item := range withSelf {
-		if item.Labels["target_kind"] == "starmapd" {
+		if item.Labels["target_kind"] == "stellmapd" {
 			foundSelf = true
 			if len(item.Targets) != 1 || item.Targets[0] != httpAddr {
-				t.Fatalf("unexpected starmapd self target: %+v", item)
+				t.Fatalf("unexpected stellmapd self target: %+v", item)
 			}
 		}
 		if item.Labels["target_kind"] == "service_instance" {

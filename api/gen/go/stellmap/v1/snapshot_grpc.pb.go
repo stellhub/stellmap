@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v4.25.2
-// source: starmap/v1/snapshot.proto
+// source: stellmap/v1/snapshot.proto
 
-package starmapv1
+package stellmapv1
 
 import (
 	context "context"
@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SnapshotService_Install_FullMethodName  = "/starmap.v1.SnapshotService/Install"
-	SnapshotService_Download_FullMethodName = "/starmap.v1.SnapshotService/Download"
+	SnapshotService_Install_FullMethodName  = "/stellmap.v1.SnapshotService/Install"
+	SnapshotService_Download_FullMethodName = "/stellmap.v1.SnapshotService/Download"
 )
 
 // SnapshotServiceClient is the client API for SnapshotService service.
@@ -158,7 +158,7 @@ type SnapshotService_DownloadServer = grpc.ServerStreamingServer[DownloadSnapsho
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var SnapshotService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "starmap.v1.SnapshotService",
+	ServiceName: "stellmap.v1.SnapshotService",
 	HandlerType: (*SnapshotServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -173,5 +173,5 @@ var SnapshotService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "starmap/v1/snapshot.proto",
+	Metadata: "stellmap/v1/snapshot.proto",
 }

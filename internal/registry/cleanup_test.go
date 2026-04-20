@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/stellaraxis/starmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 func TestCleanupCursorNextAndAdvance(t *testing.T) {

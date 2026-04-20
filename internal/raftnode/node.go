@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/stellaraxis/starmap/internal/snapshot"
-	"github.com/stellaraxis/starmap/internal/storage"
-	"github.com/stellaraxis/starmap/internal/wal"
+	"github.com/stellhub/stellmap/internal/snapshot"
+	"github.com/stellhub/stellmap/internal/storage"
+	"github.com/stellhub/stellmap/internal/wal"
 	"go.etcd.io/raft/v3"
 	raftpb "go.etcd.io/raft/v3/raftpb"
 )
@@ -46,7 +46,7 @@ type Node interface {
 	// - 启动 tick/ready 后台事件循环
 	//
 	// 典型调用场景：
-	// - 服务进程启动时由 cmd/starmapd 调用
+	// - 服务进程启动时由 cmd/stellmapd 调用
 	// - 单元测试或集成测试里用于拉起节点
 	//
 	// 这样设计的原因：
@@ -61,7 +61,7 @@ type Node interface {
 	// - 等待内部 goroutine 退出
 	//
 	// 典型调用场景：
-	// - 服务进程退出时由 cmd/starmapd 调用
+	// - 服务进程退出时由 cmd/stellmapd 调用
 	// - 测试中用于停机、重启和恢复验证
 	//
 	// 这样设计的原因：
@@ -101,7 +101,7 @@ type Node interface {
 	// - 向底层 Raft 发起一次 Leader 转移动作
 	//
 	// 典型调用场景：
-	// - 控制面运维操作，例如 starmapctl leader transfer
+	// - 控制面运维操作，例如 stellmapctl leader transfer
 	//
 	// 这样设计的原因：
 	// - Leader 转移是一个明确的运维动作，不应该通过直接修改状态实现，
@@ -114,7 +114,7 @@ type Node interface {
 	// - 最终通过共识提交后生效
 	//
 	// 典型调用场景：
-	// - 控制面运维操作，例如 starmapctl member add-learner / promote / remove
+	// - 控制面运维操作，例如 stellmapctl member add-learner / promote / remove
 	//
 	// 这样设计的原因：
 	// - 成员变更本身就是共识数据，不能直接改内存成员列表，
@@ -128,7 +128,7 @@ type Node interface {
 	//   外部主要消费它来做内部 transport 转发和控制面联动
 	//
 	// 典型调用场景：
-	// - cmd/starmapd 会持续读取这个通道，把内部复制消息转发给其他节点
+	// - cmd/stellmapd 会持续读取这个通道，把内部复制消息转发给其他节点
 	//
 	// 这样设计的原因：
 	// - 不直接把底层 raft.Node.Ready() 裸暴露给外部，
@@ -204,7 +204,7 @@ type Status struct {
 //     先恢复快照，再回放 WAL；先持久化 Ready，再推进状态机；先停止后台循环，再关闭资源。
 //
 // 使用位置：
-//   - cmd/starmapd 会直接持有 *RaftNode，负责启动节点、消费 Ready、提供控制面和数据面服务。
+//   - cmd/stellmapd 会直接持有 *RaftNode，负责启动节点、消费 Ready、提供控制面和数据面服务。
 //   - internal/raftnode/service.go 会在它之上补充更贴近服务层的能力，例如 ProposeCommand、
 //     LinearizableRead、Get、Scan、InstallSnapshot 等。
 //   - 测试里会直接构造和控制它，用于验证恢复、快照、日志压缩和多节点运行行为。
@@ -275,7 +275,7 @@ type RaftNode struct {
 	//
 	// 用途：
 	// - 节点内部完成本地持久化后，把高层 Ready 事件发到这里
-	// - cmd/starmapd 会持续消费它，把待发送消息转发给其他节点
+	// - cmd/stellmapd 会持续消费它，把待发送消息转发给其他节点
 	readyCh chan Ready
 	// stopCh 是内部停止信号通道。
 	//
@@ -420,8 +420,6 @@ func (n *RaftNode) Stop(ctx context.Context) error {
 	if n.cancel != nil {
 		n.cancel()
 	}
-	_ = n.kvStore.Close(context.Background())
-	_ = n.walStore.Close(context.Background())
 
 	select {
 	case <-ctx.Done():
@@ -545,6 +543,7 @@ func (n *RaftNode) run(ctx context.Context) {
 	defer ticker.Stop()
 	defer close(n.doneCh)
 	defer close(n.readyCh)
+	defer n.closeStores()
 	defer n.raftNode.Stop()
 
 	for {
@@ -559,6 +558,11 @@ func (n *RaftNode) run(ctx context.Context) {
 			n.handleReady(rd)
 		}
 	}
+}
+
+func (n *RaftNode) closeStores() {
+	_ = n.kvStore.Close(context.Background())
+	_ = n.walStore.Close(context.Background())
 }
 
 func (n *RaftNode) ensureRunning() error {
@@ -870,7 +874,7 @@ func resolveDataDir(cfg Config) (string, error) {
 		return cfg.DataDir, nil
 	}
 
-	return os.MkdirTemp("", fmt.Sprintf("starmap-node-%d-*", cfg.NodeID))
+	return os.MkdirTemp("", fmt.Sprintf("stellmap-node-%d-*", cfg.NodeID))
 }
 
 // bootstrapStorage 负责在节点启动时恢复本地存储状态。

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1360" height="980" viewBox="0 0 1360 980" role="img" aria-labelledby="title desc">
-  <title id="title">StarMap HTTP flow</title>
-  <desc id="desc">HTTP flow diagram for StarMap covering public data plane, internal HTTP routes, and admin HTTP control plane.</desc>
+  <title id="title">StellMap HTTP flow</title>
+  <desc id="desc">HTTP flow diagram for StellMap covering public data plane, internal HTTP routes, and admin HTTP control plane.</desc>
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#fbfcfe"/>
@@ -107,7 +107,7 @@
   <text x="74" y="712" class="lane-title">Admin Control Plane at AdminAddr</text>
 
   <rect x="82" y="750" width="176" height="116" rx="16" class="admin"/>
-  <text x="104" y="786" class="box-title">starmapctl</text>
+  <text x="104" y="786" class="box-title">stellmapctl</text>
   <text x="104" y="812" class="box-text">status / replication status</text>
   <text x="104" y="834" class="box-text">member / transfer leader</text>
 

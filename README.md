@@ -1,14 +1,14 @@
-# StarMap
+# StellMap
 
-`StarMap` 是 `Stellar Axis` 体系中的注册中心，中文名 星轴。
+`StellMap` 是 `Stellar Axis` 体系中的注册中心，中文名 星轴。
 
 它的职责很直接：为分布式系统中的服务实例提供统一的注册、发现与定位能力，让调用方能够在运行时找到目标服务，并基于一致的元数据完成路由与治理协作。
 
 ## 名字由来
 
-### StarMap
+### StellMap
 
-`StarMap` 的字面含义是“星图”或“星位坐标图”。
+`StellMap` 的字面含义是“星图”或“星位坐标图”。
 
 对于注册中心来说，这个名字对应的是它在系统中的核心角色：
 
@@ -16,11 +16,11 @@
 - 注册中心负责维护这些坐标点的当前位置和状态
 - 调用方通过这张“星图”完成服务发现、定位与导航
 
-也就是说，`StarMap` 不是简单的地址簿，而是整个服务体系的统一坐标系。
+也就是说，`StellMap` 不是简单的地址簿，而是整个服务体系的统一坐标系。
 
 ## 仓库定位
 
-当前仓库用于承载 `StarMap` 的 Go 实现。
+当前仓库用于承载 `StellMap` 的 Go 实现。
 
 按照注册中心的职责，这个仓库后续将逐步演进出以下能力：
 
@@ -33,7 +33,7 @@
 
 ## 设计目标
 
-`StarMap` 的目标不是做一个“大而全”的配置/协调系统，而是做一个轻量级、高可用、高并发、强一致的注册中心。
+`StellMap` 的目标不是做一个“大而全”的配置/协调系统，而是做一个轻量级、高可用、高并发、强一致的注册中心。
 
 - 一致性优先：采用 `CP` 架构，优先保证线性一致与正确性
 - 轻量级：单个 Raft Group 即可承载整个注册中心数据面
@@ -44,13 +44,13 @@
 
 ## 总体架构
 
-当前实现中的 `starmapd` 由公共 `HTTP`、独立 `admin HTTP` 和内部 `gRPC` 三个监听面组成，整体运行关系如下：
+当前实现中的 `stellmapd` 由公共 `HTTP`、独立 `admin HTTP` 和内部 `gRPC` 三个监听面组成，整体运行关系如下：
 
-![StarMap 架构图](docs/images/architecture-overview.svg)
+![StellMap 架构图](docs/images/architecture-overview.svg)
 
 ### 共识层
 
-`StarMap` 的注册中心集群采用单 `Raft` 组，基于 [`etcd-io/raft`](https://github.com/etcd-io/raft) 实现复制状态机。
+`StellMap` 的注册中心集群采用单 `Raft` 组，基于 [`etcd-io/raft`](https://github.com/etcd-io/raft) 实现复制状态机。
 
 这样设计的原因很直接：
 
@@ -63,7 +63,7 @@
 
 ### 数据模型
 
-`StarMap` 对外提供的是“实例注册表”模型，而不是通用 `KV` 产品。
+`StellMap` 对外提供的是“实例注册表”模型，而不是通用 `KV` 产品。
 
 - 逻辑主键：`namespace / service / instanceId`
 - 实例内容：保存端点、标签、元数据、租约 TTL、最近心跳等注册信息
@@ -87,7 +87,7 @@
 
 ### CP 架构
 
-`StarMap` 明确采用 `CP` 架构。
+`StellMap` 明确采用 `CP` 架构。
 
 - 当网络分区发生时，少数派节点停止提供线性一致写服务
 - 集群优先保证数据不分叉、不回退、不读旧值
@@ -134,7 +134,7 @@
 
 ## 存储设计
 
-`StarMap` 将持久化职责拆为三部分：
+`StellMap` 将持久化职责拆为三部分：
 
 - `WAL`：存储 Raft Log
 - `Pebble`：存储实例注册表数据与少量本地元数据
@@ -211,7 +211,7 @@ data/
 
 ### 采用 Pebble 的原因
 
-对 `StarMap` 来说，Pebble 很契合注册中心场景：
+对 `StellMap` 来说，Pebble 很契合注册中心场景：
 
 - Go 原生实现，无需引入 `cgo`
 - 顺序写和读放大控制能力较强，适合高频注册/心跳更新
@@ -243,7 +243,7 @@ data/
 | `Badger` | Go 原生、KV 能力完整 | 值日志与 GC 运维复杂度更高 | 可用，但对注册表状态管理的可控性不如 Pebble 直接 |
 | `RocksDB` | 生态成熟、能力丰富 | 依赖 `cgo`，运维和构建链更重 | 对轻量级 Go 项目过重 |
 
-因此，`StarMap` 选择：
+因此，`StellMap` 选择：
 
 - `WAL` 负责 Raft 日志
 - `Pebble` 负责实例注册表数据与少量本地元数据
@@ -294,7 +294,7 @@ data/
 - `admin HTTP` 只承载控制面动作，默认绑定到本地回环地址，例如 `127.0.0.1:18080`
 - `admin HTTP` 当前额外强制只接受来源为 `127.0.0.1` 的请求
 - `admin HTTP` 需要固定 token 鉴权，请求头格式为 `Authorization: Bearer <token>`
-- `starmapctl` 是控制面的唯一入口
+- `stellmapctl` 是控制面的唯一入口
 - 这意味着当前控制面默认只支持本机运维；如需跨机器运维，需要后续单独放宽来源限制并补更完整鉴权
 
 ### 内部 Transport
@@ -322,7 +322,7 @@ data/
 
 ## 崩溃恢复流程
 
-`StarMap` 的恢复顺序需要严格围绕 `Snapshot -> Pebble -> WAL Replay` 展开。
+`StellMap` 的恢复顺序需要严格围绕 `Snapshot -> Pebble -> WAL Replay` 展开。
 
 ### 启动恢复步骤
 
@@ -363,7 +363,7 @@ data/
 
 ## 一致性与故障测试
 
-`StarMap` 必须把一致性验证和故障注入作为核心测试内容，而不是补充项。
+`StellMap` 必须把一致性验证和故障注入作为核心测试内容，而不是补充项。
 
 ### 一致性测试
 
@@ -503,7 +503,7 @@ type StateMachine interface {
 
 ## 模块协作关系
 
-`cmd/starmapd/main.go` 当前会同时装配三套监听面：
+`cmd/stellmapd/main.go` 当前会同时装配三套监听面：
 
 - 公共 `HTTP`：`httptransport.NewPublicServer(registryHandler, health)`，承载 `/api/v1`、`/internal/v1`、`/healthz`、`/readyz`、`/metrics`
 - 独立 `admin HTTP`：`httptransport.NewAdminServer(control)`，外层再包一层 `adminAuthMiddleware`
@@ -528,7 +528,7 @@ type StateMachine interface {
 
 ## 内部 gRPC 协议
 
-内部复制协议固定由 `api/proto/starmap/v1/raft.proto` 和 `api/proto/starmap/v1/snapshot.proto` 定义，只用于节点间通信，不对外部业务客户端开放。
+内部复制协议固定由 `api/proto/stellmap/v1/raft.proto` 和 `api/proto/stellmap/v1/snapshot.proto` 定义，只用于节点间通信，不对外部业务客户端开放。
 
 ### 服务定义
 
@@ -551,16 +551,16 @@ type StateMachine interface {
 - [internal/runtime/transport_service.go](internal/runtime/transport_service.go) 中的 `InternalTransportService` 负责真正的消息处理：`SendRaftMessages` 调 `node.Step`，`InstallSnapshotChunk` 在内存中按 `term-index` 聚合分片，`DownloadSnapshot` 从本地快照存储切块返回
 - [internal/runtime/peer_transport.go](internal/runtime/peer_transport.go) 会把 `Ready.Messages` 按目标节点分组；普通消息走 `Client.Send`，`MsgSnap` 走 `splitSnapshotChunks + Client.InstallSnapshot`
 
-![StarMap gRPC 流程图](docs/images/grpc-flow.svg)
+![StellMap gRPC 流程图](docs/images/grpc-flow.svg)
 
 ## 控制面设计
 
-成员变更、Leader 转移和集群状态查看统一由 `starmapctl` 触发，但底层执行路径仍然是 `starmapd` 的独立 `admin HTTP` listener。
+成员变更、Leader 转移和集群状态查看统一由 `stellmapctl` 触发，但底层执行路径仍然是 `stellmapd` 的独立 `admin HTTP` listener。
 
 当前控制面边界：
 
 - 公共业务客户端只访问 `HTTPAddr`
-- `starmapctl` 默认访问本地 `AdminAddr`
+- `stellmapctl` 默认访问本地 `AdminAddr`
 - `admin` 请求必须同时满足“来源地址是 `127.0.0.1`”和“携带 `Authorization: Bearer <token>`”
 - `PeerAdminAddrs` 只用于 Leader 跟随和控制面状态展示，不接受远端直接访问
 
@@ -577,15 +577,15 @@ type StateMachine interface {
 
 常用命令：
 
-- `starmapctl member add-learner`
-- `starmapctl member promote`
-- `starmapctl member remove`
-- `starmapctl leader transfer`
-- `starmapctl status`
+- `stellmapctl member add-learner`
+- `stellmapctl member promote`
+- `stellmapctl member remove`
+- `stellmapctl leader transfer`
+- `stellmapctl status`
 
 ## HTTP API
 
-`StarMap` 的 `HTTPAddr` 监听面同时承载三类路由：
+`StellMap` 的 `HTTPAddr` 监听面同时承载三类路由：
 
 - 公共注册发现数据面：`/api/v1`
 - 内部复制与监控辅助接口：`/internal/v1`
@@ -593,7 +593,7 @@ type StateMachine interface {
 
 独立的 `AdminAddr` 只承载 `/admin/v1` 控制面。
 
-![StarMap HTTP 流程图](docs/images/http-flow.svg)
+![StellMap HTTP 流程图](docs/images/http-flow.svg)
 
 ### 公共注册与发现接口
 
@@ -629,13 +629,13 @@ Prometheus 最小接入示例：
 
 ```yaml
 scrape_configs:
-  - job_name: starmap-services
+  - job_name: stellmap-services
     http_sd_configs:
       - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics
         refresh_interval: 30s
         authorization:
           type: Bearer
-          credentials: starmap
+          credentials: stellmap
 ```
 
 对应返回示例：
@@ -847,7 +847,7 @@ selector=color=gray,,version=v2
 
 ### 配置方式
 
-当前通过 `TOML` 配置文件启动 `starmapd`，命令行参数只用于覆盖配置文件里的个别字段。
+当前通过 `TOML` 配置文件启动 `stellmapd`，命令行参数只用于覆盖配置文件里的个别字段。
 
 优先级规则：
 
@@ -858,16 +858,16 @@ selector=color=gray,,version=v2
 启动方式：
 
 ```bash
-./starmapd --config=./config/starmapd.toml
+./stellmapd --config=./config/stellmapd.toml
 ```
 
 安装脚本使用的配置模板可参考：
 
-- [starmapd.toml](E:\PersonalCode\GoProject\StarMap\config\starmapd.toml)
+- [stellmapd.toml](E:\PersonalCode\GoProject\StellMap\config\stellmapd.toml)
 
 注意：
 
-- 上面的 [starmapd.toml](E:\PersonalCode\GoProject\StarMap\config\starmapd.toml) 现在是安装脚本使用的占位符模板
+- 上面的 [stellmapd.toml](E:\PersonalCode\GoProject\StellMap\config\stellmapd.toml) 现在是安装脚本使用的占位符模板
 - 直接手工启动时，请参考下面这份“真实可用”的配置内容填写自己的节点参数
 
 一个最小示例如下：
@@ -885,9 +885,9 @@ admin_addr = "127.0.0.1:18080"
 grpc_addr = "0.0.0.0:19090"
 
 [auth]
-admin_token = "starmap"
-replication_token = "starmap"
-prometheus_sd_token = "starmap"
+admin_token = "stellmap"
+replication_token = "stellmap"
+prometheus_sd_token = "stellmap"
 
 [cluster]
 peer_ids = "1,2,3"
@@ -904,7 +904,7 @@ cleanup_interval = "1s"
 cleanup_delete_limit = 128
 
 [replication]
-targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
+targets_file = "/etc/stellmapd/stellmapd-node-1-replication-targets.json"
 ```
 
 说明：
@@ -913,7 +913,7 @@ targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
 - 命令行参数仍然可以覆盖配置文件，例如：
 
 ```bash
-./starmapd --config=./config/starmapd.toml --http-addr=:28080 --admin-token=new-token
+./stellmapd --config=./config/stellmapd.toml --http-addr=:28080 --admin-token=new-token
 ```
 
 ### HTTP 返回模型
@@ -1044,7 +1044,7 @@ targets_file = "/etc/starmapd/starmapd-node-1-replication-targets.json"
 ## Module
 
 ```go
-module github.com/stellaraxis/starmap
+module github.com/stellhub/stellmap
 ```
 
 ## Refrence

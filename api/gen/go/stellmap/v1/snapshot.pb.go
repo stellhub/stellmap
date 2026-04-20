@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v4.25.2
-// source: starmap/v1/snapshot.proto
+// source: stellmap/v1/snapshot.proto
 
-package starmapv1
+package stellmapv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -44,7 +44,7 @@ type SnapshotMetadata struct {
 
 func (x *SnapshotMetadata) Reset() {
 	*x = SnapshotMetadata{}
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[0]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -56,7 +56,7 @@ func (x *SnapshotMetadata) String() string {
 func (*SnapshotMetadata) ProtoMessage() {}
 
 func (x *SnapshotMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[0]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -69,7 +69,7 @@ func (x *SnapshotMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotMetadata.ProtoReflect.Descriptor instead.
 func (*SnapshotMetadata) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_snapshot_proto_rawDescGZIP(), []int{0}
+	return file_stellmap_v1_snapshot_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SnapshotMetadata) GetTerm() uint64 {
@@ -126,7 +126,7 @@ type InstallSnapshotChunk struct {
 
 func (x *InstallSnapshotChunk) Reset() {
 	*x = InstallSnapshotChunk{}
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[1]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -138,7 +138,7 @@ func (x *InstallSnapshotChunk) String() string {
 func (*InstallSnapshotChunk) ProtoMessage() {}
 
 func (x *InstallSnapshotChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[1]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -151,7 +151,7 @@ func (x *InstallSnapshotChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallSnapshotChunk.ProtoReflect.Descriptor instead.
 func (*InstallSnapshotChunk) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_snapshot_proto_rawDescGZIP(), []int{1}
+	return file_stellmap_v1_snapshot_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *InstallSnapshotChunk) GetMetadata() *SnapshotMetadata {
@@ -195,7 +195,7 @@ type InstallSnapshotResponse struct {
 
 func (x *InstallSnapshotResponse) Reset() {
 	*x = InstallSnapshotResponse{}
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[2]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +207,7 @@ func (x *InstallSnapshotResponse) String() string {
 func (*InstallSnapshotResponse) ProtoMessage() {}
 
 func (x *InstallSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[2]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +220,7 @@ func (x *InstallSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*InstallSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_snapshot_proto_rawDescGZIP(), []int{2}
+	return file_stellmap_v1_snapshot_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *InstallSnapshotResponse) GetTerm() uint64 {
@@ -250,7 +250,7 @@ type DownloadSnapshotRequest struct {
 
 func (x *DownloadSnapshotRequest) Reset() {
 	*x = DownloadSnapshotRequest{}
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[3]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -262,7 +262,7 @@ func (x *DownloadSnapshotRequest) String() string {
 func (*DownloadSnapshotRequest) ProtoMessage() {}
 
 func (x *DownloadSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[3]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -275,7 +275,7 @@ func (x *DownloadSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*DownloadSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_snapshot_proto_rawDescGZIP(), []int{3}
+	return file_stellmap_v1_snapshot_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DownloadSnapshotRequest) GetTerm() uint64 {
@@ -309,7 +309,7 @@ type DownloadSnapshotChunk struct {
 
 func (x *DownloadSnapshotChunk) Reset() {
 	*x = DownloadSnapshotChunk{}
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[4]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +321,7 @@ func (x *DownloadSnapshotChunk) String() string {
 func (*DownloadSnapshotChunk) ProtoMessage() {}
 
 func (x *DownloadSnapshotChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_starmap_v1_snapshot_proto_msgTypes[4]
+	mi := &file_stellmap_v1_snapshot_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +334,7 @@ func (x *DownloadSnapshotChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadSnapshotChunk.ProtoReflect.Descriptor instead.
 func (*DownloadSnapshotChunk) Descriptor() ([]byte, []int) {
-	return file_starmap_v1_snapshot_proto_rawDescGZIP(), []int{4}
+	return file_stellmap_v1_snapshot_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DownloadSnapshotChunk) GetMetadata() *SnapshotMetadata {
@@ -365,21 +365,20 @@ func (x *DownloadSnapshotChunk) GetEof() bool {
 	return false
 }
 
-var File_starmap_v1_snapshot_proto protoreflect.FileDescriptor
+var File_stellmap_v1_snapshot_proto protoreflect.FileDescriptor
 
-const file_starmap_v1_snapshot_proto_rawDesc = "" +
+const file_stellmap_v1_snapshot_proto_rawDesc = "" +
 	"\n" +
-	"\x19starmap/v1/snapshot.proto\x12\n" +
-	"starmap.v1\"\x94\x01\n" +
+	"\x1astellmap/v1/snapshot.proto\x12\vstellmap.v1\"\x94\x01\n" +
 	"\x10SnapshotMetadata\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x04R\x04term\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\x04R\x05index\x12\x1d\n" +
 	"\n" +
 	"conf_state\x18\x03 \x01(\fR\tconfState\x12\x1a\n" +
 	"\bchecksum\x18\x04 \x01(\tR\bchecksum\x12\x1b\n" +
-	"\tfile_size\x18\x05 \x01(\x04R\bfileSize\"\x8e\x01\n" +
-	"\x14InstallSnapshotChunk\x128\n" +
-	"\bmetadata\x18\x01 \x01(\v2\x1c.starmap.v1.SnapshotMetadataR\bmetadata\x12\x12\n" +
+	"\tfile_size\x18\x05 \x01(\x04R\bfileSize\"\x8f\x01\n" +
+	"\x14InstallSnapshotChunk\x129\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x1d.stellmap.v1.SnapshotMetadataR\bmetadata\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x10\n" +
 	"\x03eof\x18\x04 \x01(\bR\x03eof\"C\n" +
@@ -388,43 +387,43 @@ const file_starmap_v1_snapshot_proto_rawDesc = "" +
 	"\x05index\x18\x02 \x01(\x04R\x05index\"C\n" +
 	"\x17DownloadSnapshotRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x04R\x04term\x12\x14\n" +
-	"\x05index\x18\x02 \x01(\x04R\x05index\"\x8f\x01\n" +
-	"\x15DownloadSnapshotChunk\x128\n" +
-	"\bmetadata\x18\x01 \x01(\v2\x1c.starmap.v1.SnapshotMetadataR\bmetadata\x12\x12\n" +
+	"\x05index\x18\x02 \x01(\x04R\x05index\"\x90\x01\n" +
+	"\x15DownloadSnapshotChunk\x129\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x1d.stellmap.v1.SnapshotMetadataR\bmetadata\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x10\n" +
-	"\x03eof\x18\x04 \x01(\bR\x03eof2\xbb\x01\n" +
-	"\x0fSnapshotService\x12R\n" +
-	"\aInstall\x12 .starmap.v1.InstallSnapshotChunk\x1a#.starmap.v1.InstallSnapshotResponse(\x01\x12T\n" +
-	"\bDownload\x12#.starmap.v1.DownloadSnapshotRequest\x1a!.starmap.v1.DownloadSnapshotChunk0\x01B@Z>github.com/stellaraxis/starmap/api/gen/go/starmap/v1;starmapv1b\x06proto3"
+	"\x03eof\x18\x04 \x01(\bR\x03eof2\xbf\x01\n" +
+	"\x0fSnapshotService\x12T\n" +
+	"\aInstall\x12!.stellmap.v1.InstallSnapshotChunk\x1a$.stellmap.v1.InstallSnapshotResponse(\x01\x12V\n" +
+	"\bDownload\x12$.stellmap.v1.DownloadSnapshotRequest\x1a\".stellmap.v1.DownloadSnapshotChunk0\x01B@Z>github.com/stellhub/stellmap/api/gen/go/stellmap/v1;stellmapv1b\x06proto3"
 
 var (
-	file_starmap_v1_snapshot_proto_rawDescOnce sync.Once
-	file_starmap_v1_snapshot_proto_rawDescData []byte
+	file_stellmap_v1_snapshot_proto_rawDescOnce sync.Once
+	file_stellmap_v1_snapshot_proto_rawDescData []byte
 )
 
-func file_starmap_v1_snapshot_proto_rawDescGZIP() []byte {
-	file_starmap_v1_snapshot_proto_rawDescOnce.Do(func() {
-		file_starmap_v1_snapshot_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_starmap_v1_snapshot_proto_rawDesc), len(file_starmap_v1_snapshot_proto_rawDesc)))
+func file_stellmap_v1_snapshot_proto_rawDescGZIP() []byte {
+	file_stellmap_v1_snapshot_proto_rawDescOnce.Do(func() {
+		file_stellmap_v1_snapshot_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_stellmap_v1_snapshot_proto_rawDesc), len(file_stellmap_v1_snapshot_proto_rawDesc)))
 	})
-	return file_starmap_v1_snapshot_proto_rawDescData
+	return file_stellmap_v1_snapshot_proto_rawDescData
 }
 
-var file_starmap_v1_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_starmap_v1_snapshot_proto_goTypes = []any{
-	(*SnapshotMetadata)(nil),        // 0: starmap.v1.SnapshotMetadata
-	(*InstallSnapshotChunk)(nil),    // 1: starmap.v1.InstallSnapshotChunk
-	(*InstallSnapshotResponse)(nil), // 2: starmap.v1.InstallSnapshotResponse
-	(*DownloadSnapshotRequest)(nil), // 3: starmap.v1.DownloadSnapshotRequest
-	(*DownloadSnapshotChunk)(nil),   // 4: starmap.v1.DownloadSnapshotChunk
+var file_stellmap_v1_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_stellmap_v1_snapshot_proto_goTypes = []any{
+	(*SnapshotMetadata)(nil),        // 0: stellmap.v1.SnapshotMetadata
+	(*InstallSnapshotChunk)(nil),    // 1: stellmap.v1.InstallSnapshotChunk
+	(*InstallSnapshotResponse)(nil), // 2: stellmap.v1.InstallSnapshotResponse
+	(*DownloadSnapshotRequest)(nil), // 3: stellmap.v1.DownloadSnapshotRequest
+	(*DownloadSnapshotChunk)(nil),   // 4: stellmap.v1.DownloadSnapshotChunk
 }
-var file_starmap_v1_snapshot_proto_depIdxs = []int32{
-	0, // 0: starmap.v1.InstallSnapshotChunk.metadata:type_name -> starmap.v1.SnapshotMetadata
-	0, // 1: starmap.v1.DownloadSnapshotChunk.metadata:type_name -> starmap.v1.SnapshotMetadata
-	1, // 2: starmap.v1.SnapshotService.Install:input_type -> starmap.v1.InstallSnapshotChunk
-	3, // 3: starmap.v1.SnapshotService.Download:input_type -> starmap.v1.DownloadSnapshotRequest
-	2, // 4: starmap.v1.SnapshotService.Install:output_type -> starmap.v1.InstallSnapshotResponse
-	4, // 5: starmap.v1.SnapshotService.Download:output_type -> starmap.v1.DownloadSnapshotChunk
+var file_stellmap_v1_snapshot_proto_depIdxs = []int32{
+	0, // 0: stellmap.v1.InstallSnapshotChunk.metadata:type_name -> stellmap.v1.SnapshotMetadata
+	0, // 1: stellmap.v1.DownloadSnapshotChunk.metadata:type_name -> stellmap.v1.SnapshotMetadata
+	1, // 2: stellmap.v1.SnapshotService.Install:input_type -> stellmap.v1.InstallSnapshotChunk
+	3, // 3: stellmap.v1.SnapshotService.Download:input_type -> stellmap.v1.DownloadSnapshotRequest
+	2, // 4: stellmap.v1.SnapshotService.Install:output_type -> stellmap.v1.InstallSnapshotResponse
+	4, // 5: stellmap.v1.SnapshotService.Download:output_type -> stellmap.v1.DownloadSnapshotChunk
 	4, // [4:6] is the sub-list for method output_type
 	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -432,26 +431,26 @@ var file_starmap_v1_snapshot_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_starmap_v1_snapshot_proto_init() }
-func file_starmap_v1_snapshot_proto_init() {
-	if File_starmap_v1_snapshot_proto != nil {
+func init() { file_stellmap_v1_snapshot_proto_init() }
+func file_stellmap_v1_snapshot_proto_init() {
+	if File_stellmap_v1_snapshot_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_starmap_v1_snapshot_proto_rawDesc), len(file_starmap_v1_snapshot_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stellmap_v1_snapshot_proto_rawDesc), len(file_stellmap_v1_snapshot_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_starmap_v1_snapshot_proto_goTypes,
-		DependencyIndexes: file_starmap_v1_snapshot_proto_depIdxs,
-		MessageInfos:      file_starmap_v1_snapshot_proto_msgTypes,
+		GoTypes:           file_stellmap_v1_snapshot_proto_goTypes,
+		DependencyIndexes: file_stellmap_v1_snapshot_proto_depIdxs,
+		MessageInfos:      file_stellmap_v1_snapshot_proto_msgTypes,
 	}.Build()
-	File_starmap_v1_snapshot_proto = out.File
-	file_starmap_v1_snapshot_proto_goTypes = nil
-	file_starmap_v1_snapshot_proto_depIdxs = nil
+	File_stellmap_v1_snapshot_proto = out.File
+	file_stellmap_v1_snapshot_proto_goTypes = nil
+	file_stellmap_v1_snapshot_proto_depIdxs = nil
 }

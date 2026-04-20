@@ -15,22 +15,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	daemonapp "github.com/stellaraxis/starmap/internal/app"
-	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/replication"
-	"github.com/stellaraxis/starmap/internal/runtime"
-	"github.com/stellaraxis/starmap/internal/snapshot"
-	grpctransport "github.com/stellaraxis/starmap/internal/transport/grpc"
-	httptransport "github.com/stellaraxis/starmap/internal/transport/http"
+	daemonapp "github.com/stellhub/stellmap/internal/app"
+	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/replication"
+	"github.com/stellhub/stellmap/internal/runtime"
+	"github.com/stellhub/stellmap/internal/snapshot"
+	grpctransport "github.com/stellhub/stellmap/internal/transport/grpc"
+	httptransport "github.com/stellhub/stellmap/internal/transport/http"
 	"google.golang.org/grpc"
 )
 
 type daemonConfig = daemonapp.Config
 type serverApp = daemonapp.App
 
-// main 是 starmapd 的服务进程入口。
+// main 是 stellmapd 的服务进程入口。
 //
 // 启动前提：
 // 1. 推荐通过 `--config` 指向 TOML 配置文件提供完整启动配置。
@@ -39,11 +39,11 @@ type serverApp = daemonapp.App
 //
 // 单节点启动示例：
 //
-//	go run ./cmd/starmapd --config=./config/starmapd.toml
+//	go run ./cmd/stellmapd --config=./config/stellmapd.toml
 //
 // 三节点启动示例中的单个节点：
 //
-//	go run ./cmd/starmapd --config=/etc/starmapd/starmapd-node-1.toml
+//	go run ./cmd/stellmapd --config=/etc/stellmapd/stellmapd-node-1.toml
 //
 // 当前职责：
 // 1. 解析启动配置。
@@ -60,15 +60,15 @@ func main() {
 
 	app, err := newServerApp(cfg)
 	if err != nil {
-		log.Fatalf("create starmapd failed: %v", err)
+		log.Fatalf("create stellmapd failed: %v", err)
 	}
 
 	if err := app.Start(ctx); err != nil {
-		log.Fatalf("start starmapd failed: %v", err)
+		log.Fatalf("start stellmapd failed: %v", err)
 	}
 
 	effectiveCfg := app.Config()
-	log.Printf("starmapd started, node_id=%d cluster_id=%d http=%s admin=%s grpc=%s data_dir=%s", effectiveCfg.NodeID, effectiveCfg.ClusterID, effectiveCfg.HTTPAddr, effectiveCfg.AdminAddr, effectiveCfg.GRPCAddr, effectiveCfg.DataDir)
+	log.Printf("stellmapd started, node_id=%d cluster_id=%d http=%s admin=%s grpc=%s data_dir=%s", effectiveCfg.NodeID, effectiveCfg.ClusterID, effectiveCfg.HTTPAddr, effectiveCfg.AdminAddr, effectiveCfg.GRPCAddr, effectiveCfg.DataDir)
 
 	select {
 	case <-ctx.Done():
@@ -82,7 +82,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), effectiveCfg.ShutdownTimeout)
 	defer cancel()
 	if err := app.Stop(shutdownCtx); err != nil {
-		log.Fatalf("stop starmapd failed: %v", err)
+		log.Fatalf("stop stellmapd failed: %v", err)
 	}
 }
 

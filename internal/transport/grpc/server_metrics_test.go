@@ -6,8 +6,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	starmapv1 "github.com/stellaraxis/starmap/api/gen/go/starmap/v1"
-	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
+	stellmapv1 "github.com/stellhub/stellmap/api/gen/go/stellmap/v1"
+	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -29,7 +29,7 @@ func (f *fakeService) DownloadSnapshot(ctx context.Context, term, index uint64) 
 
 type fakeDownloadServer struct {
 	ctx  context.Context
-	sent []*starmapv1.DownloadSnapshotChunk
+	sent []*stellmapv1.DownloadSnapshotChunk
 }
 
 func (f *fakeDownloadServer) SetHeader(md metadata.MD) error  { return nil }
@@ -43,7 +43,7 @@ func (f *fakeDownloadServer) Context() context.Context {
 }
 func (f *fakeDownloadServer) SendMsg(m interface{}) error { return nil }
 func (f *fakeDownloadServer) RecvMsg(m interface{}) error { return nil }
-func (f *fakeDownloadServer) Send(chunk *starmapv1.DownloadSnapshotChunk) error {
+func (f *fakeDownloadServer) Send(chunk *stellmapv1.DownloadSnapshotChunk) error {
 	f.sent = append(f.sent, chunk)
 	return nil
 }
@@ -67,8 +67,8 @@ func TestServerMetricsObserveUnaryAndStreamRPC(t *testing.T) {
 	}
 	server := NewServer(service).WithMetrics(transportMetrics.GRPC())
 
-	raftBatch := &starmapv1.RaftMessageBatch{
-		Messages: []*starmapv1.RaftEnvelope{
+	raftBatch := &stellmapv1.RaftMessageBatch{
+		Messages: []*stellmapv1.RaftEnvelope{
 			{From: 1, To: 2, Payload: []byte("raft-a")},
 			{From: 1, To: 2, Payload: []byte("raft-b")},
 		},
@@ -78,7 +78,7 @@ func TestServerMetricsObserveUnaryAndStreamRPC(t *testing.T) {
 	}
 
 	downloadServer := &fakeDownloadServer{}
-	if err := server.Download(&starmapv1.DownloadSnapshotRequest{Term: 1, Index: 2}, downloadServer); err != nil {
+	if err := server.Download(&stellmapv1.DownloadSnapshotRequest{Term: 1, Index: 2}, downloadServer); err != nil {
 		t.Fatalf("download snapshot failed: %v", err)
 	}
 	if len(downloadServer.sent) != 1 {
@@ -90,20 +90,20 @@ func TestServerMetricsObserveUnaryAndStreamRPC(t *testing.T) {
 		t.Fatalf("gather metrics failed: %v", err)
 	}
 
-	assertGRPCCounterValue(t, families, "starmap_grpc_server_requests_total", map[string]string{
+	assertGRPCCounterValue(t, families, "stellmap_grpc_server_requests_total", map[string]string{
 		"method":   methodRaftSend,
 		"rpc_type": rpcTypeUnary,
 		"code":     "OK",
 	}, 1)
-	assertGRPCCounterValue(t, families, "starmap_grpc_server_requests_total", map[string]string{
+	assertGRPCCounterValue(t, families, "stellmap_grpc_server_requests_total", map[string]string{
 		"method":   methodSnapshotDownload,
 		"rpc_type": rpcTypeServerStream,
 		"code":     "OK",
 	}, 1)
-	assertGRPCHistogramCount(t, families, "starmap_grpc_server_raft_batch_messages", map[string]string{
+	assertGRPCHistogramCount(t, families, "stellmap_grpc_server_raft_batch_messages", map[string]string{
 		"method": methodRaftSend,
 	}, 1)
-	assertGRPCHistogramCount(t, families, "starmap_grpc_server_snapshot_bytes", map[string]string{
+	assertGRPCHistogramCount(t, families, "stellmap_grpc_server_snapshot_bytes", map[string]string{
 		"method":    methodSnapshotDownload,
 		"direction": "send",
 	}, 1)
@@ -157,4 +157,4 @@ func grpcMetricMatches(metric *dto.Metric, labels map[string]string) bool {
 	return true
 }
 
-var _ starmapv1.SnapshotService_DownloadServer = (*fakeDownloadServer)(nil)
+var _ stellmapv1.SnapshotService_DownloadServer = (*fakeDownloadServer)(nil)

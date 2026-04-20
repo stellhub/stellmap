@@ -18,31 +18,31 @@ func NewCollector(tracker *Tracker) *Collector {
 	return &Collector{
 		tracker: tracker,
 		connectedDesc: prometheus.NewDesc(
-			"starmap_replication_connected",
+			"stellmap_replication_connected",
 			"Whether the replication stream is currently connected.",
 			labels,
 			nil,
 		),
 		lastAppliedRevisionDesc: prometheus.NewDesc(
-			"starmap_replication_last_applied_revision",
+			"stellmap_replication_last_applied_revision",
 			"Last applied replication revision.",
 			labels,
 			nil,
 		),
 		lastSnapshotRevisionDesc: prometheus.NewDesc(
-			"starmap_replication_last_snapshot_revision",
+			"stellmap_replication_last_snapshot_revision",
 			"Last snapshot revision used by replication.",
 			labels,
 			nil,
 		),
 		lastSyncUnixDesc: prometheus.NewDesc(
-			"starmap_replication_last_sync_unixtime",
+			"stellmap_replication_last_sync_unixtime",
 			"Last successful replication sync time in unix seconds.",
 			labels,
 			nil,
 		),
 		errorTotalDesc: prometheus.NewDesc(
-			"starmap_replication_error_total",
+			"stellmap_replication_error_total",
 			"Total replication errors.",
 			labels,
 			nil,

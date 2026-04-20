@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v4.25.2
-// source: starmap/v1/raft.proto
+// source: stellmap/v1/raft.proto
 
-package starmapv1
+package stellmapv1
 
 import (
 	context "context"
@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftTransport_Send_FullMethodName = "/starmap.v1.RaftTransport/Send"
+	RaftTransport_Send_FullMethodName = "/stellmap.v1.RaftTransport/Send"
 )
 
 // RaftTransportClient is the client API for RaftTransport service.
@@ -120,7 +120,7 @@ func _RaftTransport_Send_Handler(srv interface{}, ctx context.Context, dec func(
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RaftTransport_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "starmap.v1.RaftTransport",
+	ServiceName: "stellmap.v1.RaftTransport",
 	HandlerType: (*RaftTransportServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -129,5 +129,5 @@ var RaftTransport_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "starmap/v1/raft.proto",
+	Metadata: "stellmap/v1/raft.proto",
 }

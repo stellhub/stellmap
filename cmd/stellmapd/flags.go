@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	daemonapp "github.com/stellaraxis/starmap/internal/app"
-	"github.com/stellaraxis/starmap/internal/raftnode"
+	daemonapp "github.com/stellhub/stellmap/internal/app"
+	"github.com/stellhub/stellmap/internal/raftnode"
 )
 
 // parseFlags 解析命令行参数，并在需要时合并 TOML 配置文件。
@@ -25,7 +25,7 @@ func parseFlags() (daemonConfig, error) {
 		cli        daemonConfig
 	)
 
-	fs.StringVar(&configPath, "config", "", "starmapd TOML 配置文件路径")
+	fs.StringVar(&configPath, "config", "", "stellmapd TOML 配置文件路径")
 	fs.Uint64Var(&cli.NodeID, "node-id", 0, "当前节点 ID")
 	fs.Uint64Var(&cli.ClusterID, "cluster-id", 0, "集群 ID")
 	fs.StringVar(&cli.Region, "region", "", "当前节点所属 region，例如 cn-sh、cn-bj")

@@ -49,13 +49,13 @@ func TestParseReplicationTargetsFile(t *testing.T) {
 }
 
 func TestLoadConfigFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "starmapd.toml")
+	path := filepath.Join(t.TempDir(), "stellmapd.toml")
 	content := `
 [node]
 id = 1
 cluster_id = 100
 region = "cn-sh"
-data_dir = "/data/starmap/node-1"
+data_dir = "/data/stellmap/node-1"
 
 [server]
 http_addr = "0.0.0.0:8080"
@@ -82,7 +82,7 @@ cleanup_interval = "5s"
 cleanup_delete_limit = 256
 
 [replication]
-targets_file = "/etc/starmapd/replication-targets.json"
+targets_file = "/etc/stellmapd/replication-targets.json"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config file failed: %v", err)
@@ -104,7 +104,7 @@ targets_file = "/etc/starmapd/replication-targets.json"
 	if cfg.RequestTimeout.String() != "6s" || cfg.ShutdownTimeout.String() != "12s" {
 		t.Fatalf("unexpected runtime config: %+v", cfg)
 	}
-	if cfg.ReplicationTargetsFile != "/etc/starmapd/replication-targets.json" {
+	if cfg.ReplicationTargetsFile != "/etc/stellmapd/replication-targets.json" {
 		t.Fatalf("unexpected replication targets file: %s", cfg.ReplicationTargetsFile)
 	}
 }

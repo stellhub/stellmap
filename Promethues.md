@@ -1,8 +1,8 @@
 ## Prometheus 与 Grafana 最小接入示例
 
-### 1 Prometheus 通过 StarMap 做 HTTP SD
+### 1 Prometheus 通过 StellMap 做 HTTP SD
 
-`StarMap` 已经提供：
+`StellMap` 已经提供：
 
 - `GET /internal/v1/prometheus/sd`
 
@@ -15,29 +15,29 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: starmap-services
+  - job_name: stellmap-services
     http_sd_configs:
       - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics
         refresh_interval: 30s
         authorization:
           type: Bearer
-          credentials: starmap
+          credentials: stellmap
 ```
 
-如果你希望同时抓取 StarMap 自身节点指标，可以使用：
+如果你希望同时抓取 StellMap 自身节点指标，可以使用：
 
 ```yaml
 global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: starmap-all
+  - job_name: stellmap-all
     http_sd_configs:
       - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics&includeSelf=true
         refresh_interval: 30s
         authorization:
           type: Bearer
-          credentials: starmap
+          credentials: stellmap
 ```
 
 ### 2 docker-compose 最小示例
@@ -73,13 +73,13 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: starmap-all
+  - job_name: stellmap-all
     http_sd_configs:
       - url: http://10.0.0.11:8080/internal/v1/prometheus/sd?endpoint=metrics&includeSelf=true
         refresh_interval: 30s
         authorization:
           type: Bearer
-          credentials: starmap
+          credentials: stellmap
 ```
 
 Grafana 接入步骤：
@@ -92,18 +92,18 @@ Grafana 接入步骤：
 
 ### 3 Grafana 面板与新增指标说明
 
-当前 `StarMap` 暴露的指标可以分成 4 组：
+当前 `StellMap` 暴露的指标可以分成 4 组：
 
 - 基础运行时指标：`go_*`、`process_*`
-- 传输层指标：`starmap_http_server_*`、`starmap_grpc_server_*`
-- 复制状态指标：`starmap_replication_*`
-- 注册中心画像与治理指标：`starmap_registry_*`
+- 传输层指标：`stellmap_http_server_*`、`stellmap_grpc_server_*`
+- 复制状态指标：`stellmap_replication_*`
+- 注册中心画像与治理指标：`stellmap_registry_*`
 
 #### 3.1 新增的注册中心画像与治理指标
 
 本次新增了以下指标：
 
-- `starmap_registry_active_instances`
+- `stellmap_registry_active_instances`
   - 当前仍处于有效租约内的实例数
   - 标签：
     - `namespace`
@@ -114,7 +114,7 @@ Grafana 接入步骤：
     - `application`
     - `role`
     - `zone`
-- `starmap_registry_register_requests_total`
+- `stellmap_registry_register_requests_total`
   - 注册请求总量
   - 标签：
     - `namespace`
@@ -126,13 +126,13 @@ Grafana 接入步骤：
     - `role`
     - `zone`
     - `code`
-- `starmap_registry_heartbeat_requests_total`
+- `stellmap_registry_heartbeat_requests_total`
   - 心跳请求总量
   - 标签同上
-- `starmap_registry_deregister_requests_total`
+- `stellmap_registry_deregister_requests_total`
   - 注销请求总量
   - 标签同上
-- `starmap_registry_watch_sessions`
+- `stellmap_registry_watch_sessions`
   - 当前处于活跃状态的 watch 会话数
   - 标签：
     - `watch_kind`
@@ -183,13 +183,13 @@ callerRole
 2. HTTP Header
 
 ```text
-X-StarMap-Caller-Namespace
-X-StarMap-Caller-Service
-X-StarMap-Caller-Organization
-X-StarMap-Caller-Business-Domain
-X-StarMap-Caller-Capability-Domain
-X-StarMap-Caller-Application
-X-StarMap-Caller-Role
+X-StellMap-Caller-Namespace
+X-StellMap-Caller-Service
+X-StellMap-Caller-Organization
+X-StellMap-Caller-Business-Domain
+X-StellMap-Caller-Capability-Domain
+X-StellMap-Caller-Application
+X-StellMap-Caller-Role
 ```
 
 兼容的简化 header 也支持：
@@ -215,41 +215,41 @@ X-Caller-Role
 - HTTP 总 QPS
 
 ```promql
-sum(rate(starmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
+sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
 ```
 
 - HTTP 5xx 错误率
 
 ```promql
-sum(rate(starmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz", code=~"5.."}[5m]))
+sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz", code=~"5.."}[5m]))
 /
-sum(rate(starmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
+sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
 ```
 
 - gRPC 总 QPS
 
 ```promql
-sum(rate(starmap_grpc_server_requests_total[5m]))
+sum(rate(stellmap_grpc_server_requests_total[5m]))
 ```
 
 - gRPC 非 OK 错误率
 
 ```promql
-sum(rate(starmap_grpc_server_requests_total{code!="OK"}[5m]))
+sum(rate(stellmap_grpc_server_requests_total{code!="OK"}[5m]))
 /
-sum(rate(starmap_grpc_server_requests_total[5m]))
+sum(rate(stellmap_grpc_server_requests_total[5m]))
 ```
 
 - 当前 HTTP inflight
 
 ```promql
-sum(starmap_http_server_inflight_requests)
+sum(stellmap_http_server_inflight_requests)
 ```
 
 - 当前 gRPC inflight
 
 ```promql
-sum(starmap_grpc_server_inflight_requests)
+sum(stellmap_grpc_server_inflight_requests)
 ```
 
 ##### B. HTTP 注册中心面板
@@ -258,7 +258,7 @@ sum(starmap_grpc_server_inflight_requests)
 
 ```promql
 sum by (route, method) (
-  rate(starmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
+  rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
 )
 ```
 
@@ -268,7 +268,7 @@ sum by (route, method) (
 histogram_quantile(
   0.95,
   sum by (le, route, method) (
-    rate(starmap_http_server_request_duration_seconds_bucket{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
+    rate(stellmap_http_server_request_duration_seconds_bucket{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
   )
 )
 ```
@@ -277,7 +277,7 @@ histogram_quantile(
 
 ```promql
 sum by (route) (
-  starmap_http_server_inflight_requests{route=~"/api/v1/registry/watch|/internal/v1/replication/watch"}
+  stellmap_http_server_inflight_requests{route=~"/api/v1/registry/watch|/internal/v1/replication/watch"}
 )
 ```
 
@@ -287,7 +287,7 @@ sum by (route) (
 
 ```promql
 sum by (method, rpc_type) (
-  rate(starmap_grpc_server_requests_total[5m])
+  rate(stellmap_grpc_server_requests_total[5m])
 )
 ```
 
@@ -297,7 +297,7 @@ sum by (method, rpc_type) (
 histogram_quantile(
   0.95,
   sum by (le, method, rpc_type) (
-    rate(starmap_grpc_server_request_duration_seconds_bucket[5m])
+    rate(stellmap_grpc_server_request_duration_seconds_bucket[5m])
   )
 )
 ```
@@ -305,29 +305,29 @@ histogram_quantile(
 - `RaftTransport/Send` 平均 batch message 数
 
 ```promql
-sum(rate(starmap_grpc_server_raft_batch_messages_sum{method="/starmap.v1.RaftTransport/Send"}[5m]))
+sum(rate(stellmap_grpc_server_raft_batch_messages_sum{method="/stellmap.v1.RaftTransport/Send"}[5m]))
 /
-sum(rate(starmap_grpc_server_raft_batch_messages_count{method="/starmap.v1.RaftTransport/Send"}[5m]))
+sum(rate(stellmap_grpc_server_raft_batch_messages_count{method="/stellmap.v1.RaftTransport/Send"}[5m]))
 ```
 
 - `RaftTransport/Send` 平均 batch bytes
 
 ```promql
-sum(rate(starmap_grpc_server_raft_batch_payload_bytes_sum{method="/starmap.v1.RaftTransport/Send"}[5m]))
+sum(rate(stellmap_grpc_server_raft_batch_payload_bytes_sum{method="/stellmap.v1.RaftTransport/Send"}[5m]))
 /
-sum(rate(starmap_grpc_server_raft_batch_payload_bytes_count{method="/starmap.v1.RaftTransport/Send"}[5m]))
+sum(rate(stellmap_grpc_server_raft_batch_payload_bytes_count{method="/stellmap.v1.RaftTransport/Send"}[5m]))
 ```
 
 - Snapshot 接收吞吐
 
 ```promql
-sum(rate(starmap_grpc_server_snapshot_bytes_sum{method="/starmap.v1.SnapshotService/Install", direction="recv"}[5m]))
+sum(rate(stellmap_grpc_server_snapshot_bytes_sum{method="/stellmap.v1.SnapshotService/Install", direction="recv"}[5m]))
 ```
 
 - Snapshot 发送吞吐
 
 ```promql
-sum(rate(starmap_grpc_server_snapshot_bytes_sum{method="/starmap.v1.SnapshotService/Download", direction="send"}[5m]))
+sum(rate(stellmap_grpc_server_snapshot_bytes_sum{method="/stellmap.v1.SnapshotService/Download", direction="send"}[5m]))
 ```
 
 ##### D. 复制状态面板
@@ -335,19 +335,19 @@ sum(rate(starmap_grpc_server_snapshot_bytes_sum{method="/starmap.v1.SnapshotServ
 - 当前连接状态
 
 ```promql
-starmap_replication_connected
+stellmap_replication_connected
 ```
 
 - 最近同步距今秒数
 
 ```promql
-time() - starmap_replication_last_sync_unixtime
+time() - stellmap_replication_last_sync_unixtime
 ```
 
 - 错误增长速率
 
 ```promql
-rate(starmap_replication_error_total[5m])
+rate(stellmap_replication_error_total[5m])
 ```
 
 ##### E. 客户端画像面板
@@ -358,7 +358,7 @@ rate(starmap_replication_error_total[5m])
 topk(
   10,
   sum by (organization, business_domain, capability_domain, application, role) (
-    starmap_registry_active_instances
+    stellmap_registry_active_instances
   )
 )
 ```
@@ -369,7 +369,7 @@ topk(
 topk(
   10,
   sum by (namespace, service) (
-    starmap_registry_active_instances
+    stellmap_registry_active_instances
   )
 )
 ```
@@ -380,7 +380,7 @@ topk(
 topk(
   10,
   sum by (instance, organization, business_domain, capability_domain, application, role) (
-    rate(starmap_registry_register_requests_total[5m])
+    rate(stellmap_registry_register_requests_total[5m])
   )
 )
 ```
@@ -391,7 +391,7 @@ topk(
 topk(
   10,
   sum by (instance, organization, business_domain, capability_domain, application, role) (
-    rate(starmap_registry_heartbeat_requests_total[5m])
+    rate(stellmap_registry_heartbeat_requests_total[5m])
   )
 )
 ```
@@ -412,7 +412,7 @@ topk(
 topk(
   10,
   sum by (target_namespace, target_service) (
-    starmap_registry_watch_sessions{watch_kind="instances"}
+    stellmap_registry_watch_sessions{watch_kind="instances"}
   )
 )
 ```
@@ -423,7 +423,7 @@ topk(
 topk(
   10,
   sum by (caller_organization, caller_business_domain, caller_capability_domain, caller_application, caller_role) (
-    starmap_registry_watch_sessions{watch_kind="instances"}
+    stellmap_registry_watch_sessions{watch_kind="instances"}
   )
 )
 ```
@@ -432,7 +432,7 @@ topk(
 
 ```promql
 sum(
-  starmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
+  stellmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
 )
 ```
 
@@ -442,7 +442,7 @@ sum(
 topk(
   10,
   sum by (caller_organization, caller_business_domain, caller_capability_domain, caller_application, caller_role) (
-    starmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
+    stellmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
   )
 )
 ```
@@ -463,7 +463,7 @@ topk(
       target_service,
       target_scope
     ) (
-      starmap_registry_watch_sessions{watch_kind="instances"} > 0
+      stellmap_registry_watch_sessions{watch_kind="instances"} > 0
     )
   )
 )

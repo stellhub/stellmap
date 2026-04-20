@@ -44,7 +44,7 @@ type configFile struct {
 	} `toml:"replication"`
 }
 
-// LoadConfigFile 从 TOML 文件加载 starmapd 配置。
+// LoadConfigFile 从 TOML 文件加载 stellmapd 配置。
 func LoadConfigFile(path string) (Config, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {

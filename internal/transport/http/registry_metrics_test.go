@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	internalmetrics "github.com/stellaraxis/starmap/internal/metrics"
-	"github.com/stellaraxis/starmap/internal/raftnode"
-	"github.com/stellaraxis/starmap/internal/registry"
-	"github.com/stellaraxis/starmap/internal/storage"
+	internalmetrics "github.com/stellhub/stellmap/internal/metrics"
+	"github.com/stellhub/stellmap/internal/raftnode"
+	"github.com/stellhub/stellmap/internal/registry"
+	"github.com/stellhub/stellmap/internal/storage"
 )
 
 func TestRegisterRecordsRegistryClientMetrics(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRegisterRecordsRegistryClientMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gather registry metrics failed: %v", err)
 	}
-	assertHTTPMetricCounter(t, families, "starmap_registry_register_requests_total", map[string]string{
+	assertHTTPMetricCounter(t, families, "stellmap_registry_register_requests_total", map[string]string{
 		"namespace":         "prod",
 		"service":           "company.trade.order.order-center.api",
 		"organization":      "company",
@@ -169,7 +169,7 @@ func currentWatchGaugeValue(t *testing.T, metricsRegistry *prometheus.Registry) 
 		t.Fatalf("gather registry metrics failed: %v", err)
 	}
 	for _, family := range families {
-		if family.GetName() != "starmap_registry_watch_sessions" {
+		if family.GetName() != "stellmap_registry_watch_sessions" {
 			continue
 		}
 		for _, metric := range family.GetMetric() {
