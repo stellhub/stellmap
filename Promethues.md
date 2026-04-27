@@ -212,276 +212,92 @@ X-Caller-Role
 
 ##### A. 总览面板
 
-- HTTP 总 QPS
++ 实例存活
 
-```promql
-sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
+```shell
+max(up{job="prometheus"})
 ```
 
-- HTTP 5xx 错误率
++ CPU使用率
 
-```promql
-sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz", code=~"5.."}[5m]))
-/
-sum(rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz"}[5m]))
+```shell
+rate(process_cpu_seconds_total[5m]) * 100
 ```
 
-- gRPC 总 QPS
++ GC次数
 
-```promql
-sum(rate(stellmap_grpc_server_requests_total[5m]))
+```shell
+rate(go_gc_duration_seconds_count[5m])
 ```
 
-- gRPC 非 OK 错误率
++ TopN
 
-```promql
-sum(rate(stellmap_grpc_server_requests_total{code!="OK"}[5m]))
-/
-sum(rate(stellmap_grpc_server_requests_total[5m]))
-```
-
-- 当前 HTTP inflight
-
-```promql
-sum(stellmap_http_server_inflight_requests)
-```
-
-- 当前 gRPC inflight
-
-```promql
-sum(stellmap_grpc_server_inflight_requests)
-```
-
-##### B. HTTP 注册中心面板
-
-- 各 route QPS
-
-```promql
-sum by (route, method) (
-  rate(stellmap_http_server_requests_total{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
-)
-```
-
-- 普通 HTTP p95 延迟
-
-```promql
-histogram_quantile(
-  0.95,
-  sum by (le, route, method) (
-    rate(stellmap_http_server_request_duration_seconds_bucket{route!~"/metrics|/healthz|/readyz|/api/v1/registry/watch|/internal/v1/replication/watch"}[5m])
+```shell
+topk(
+  10,
+  sum by (service) (
+    increase(stellmap_registry_register_requests_total[1h])
   )
 )
 ```
 
-- 当前 watch 连接数
+##### B. Http
 
-```promql
++ P99
+
+```shell
+histogram_quantile(
+  0.99,
+  sum by (le) (
+    rate(stellmap_http_server_request_duration_seconds_bucket{route!="/api/v1/registry/watch"}[5m])
+  )
+)
+```
+
++ QPS【route】
+
+```shell
 sum by (route) (
-  stellmap_http_server_inflight_requests{route=~"/api/v1/registry/watch|/internal/v1/replication/watch"}
+  rate(stellmap_http_server_requests_total[5m])
 )
 ```
 
-##### C. gRPC 内部复制面板
++ QPS【method】
 
-- 按 method 的 QPS
-
-```promql
-sum by (method, rpc_type) (
-  rate(stellmap_grpc_server_requests_total[5m])
+```shell
+sum by (route, method, code) (
+  rate(stellmap_http_server_requests_total[5m])
 )
 ```
 
-- gRPC p95 延迟
+##### Regisger
 
-```promql
-histogram_quantile(
-  0.95,
-  sum by (le, method, rpc_type) (
-    rate(stellmap_grpc_server_request_duration_seconds_bucket[5m])
-  )
++ Register【service】
+
+```shell
+sum by (service) (
+  rate(stellmap_registry_register_requests_total[5m])
 )
 ```
 
-- `RaftTransport/Send` 平均 batch message 数
++ Register【QPS】
 
-```promql
-sum(rate(stellmap_grpc_server_raft_batch_messages_sum{method="/stellmap.v1.RaftTransport/Send"}[5m]))
-/
-sum(rate(stellmap_grpc_server_raft_batch_messages_count{method="/stellmap.v1.RaftTransport/Send"}[5m]))
+```shell
+sum(rate(stellmap_registry_register_requests_total[5m]))
 ```
 
-- `RaftTransport/Send` 平均 batch bytes
+##### Deregister
 
-```promql
-sum(rate(stellmap_grpc_server_raft_batch_payload_bytes_sum{method="/stellmap.v1.RaftTransport/Send"}[5m]))
-/
-sum(rate(stellmap_grpc_server_raft_batch_payload_bytes_count{method="/stellmap.v1.RaftTransport/Send"}[5m]))
++ Deregister【QPS】
+
+```shell
+sum(rate(stellmap_registry_deregister_requests_total[5m]))
 ```
 
-- Snapshot 接收吞吐
++ Deregister【service】
 
-```promql
-sum(rate(stellmap_grpc_server_snapshot_bytes_sum{method="/stellmap.v1.SnapshotService/Install", direction="recv"}[5m]))
-```
-
-- Snapshot 发送吞吐
-
-```promql
-sum(rate(stellmap_grpc_server_snapshot_bytes_sum{method="/stellmap.v1.SnapshotService/Download", direction="send"}[5m]))
-```
-
-##### D. 复制状态面板
-
-- 当前连接状态
-
-```promql
-stellmap_replication_connected
-```
-
-- 最近同步距今秒数
-
-```promql
-time() - stellmap_replication_last_sync_unixtime
-```
-
-- 错误增长速率
-
-```promql
-rate(stellmap_replication_error_total[5m])
-```
-
-##### E. 客户端画像面板
-
-- 当前注册实例 Top 10 应用
-
-```promql
-topk(
-  10,
-  sum by (organization, business_domain, capability_domain, application, role) (
-    stellmap_registry_active_instances
-  )
+```shell
+sum by (service) (
+  rate(stellmap_registry_deregister_requests_total[5m])
 )
 ```
-
-- 当前注册实例 Top 10 服务
-
-```promql
-topk(
-  10,
-  sum by (namespace, service) (
-    stellmap_registry_active_instances
-  )
-)
-```
-
-- 最近 5 分钟注册请求 Top 10 应用
-
-```promql
-topk(
-  10,
-  sum by (instance, organization, business_domain, capability_domain, application, role) (
-    rate(stellmap_registry_register_requests_total[5m])
-  )
-)
-```
-
-- 最近 5 分钟心跳请求 Top 10 应用
-
-```promql
-topk(
-  10,
-  sum by (instance, organization, business_domain, capability_domain, application, role) (
-    rate(stellmap_registry_heartbeat_requests_total[5m])
-  )
-)
-```
-
-##### F. Watch 治理面板
-
-建议所有治理面板都加过滤：
-
-```promql
-{watch_kind="instances"}
-```
-
-这样可以把内部 `replication watch` 排除掉，避免干扰业务客户端画像。
-
-- 当前被 watch 最多的下游服务 Top 10
-
-```promql
-topk(
-  10,
-  sum by (target_namespace, target_service) (
-    stellmap_registry_watch_sessions{watch_kind="instances"}
-  )
-)
-```
-
-- 当前 watch 最多下游服务的调用方 Top 10
-
-```promql
-topk(
-  10,
-  sum by (caller_organization, caller_business_domain, caller_capability_domain, caller_application, caller_role) (
-    stellmap_registry_watch_sessions{watch_kind="instances"}
-  )
-)
-```
-
-- 当前 namespace 级大范围 watch 数量
-
-```promql
-sum(
-  stellmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
-)
-```
-
-- 当前 namespace 级大范围 watch Top 10 调用方
-
-```promql
-topk(
-  10,
-  sum by (caller_organization, caller_business_domain, caller_capability_domain, caller_application, caller_role) (
-    stellmap_registry_watch_sessions{watch_kind="instances", target_scope="namespace"}
-  )
-)
-```
-
-- 当前 watch 最多“不同下游目标”的调用方 Top 10
-
-```promql
-topk(
-  10,
-  sum by (caller_organization, caller_business_domain, caller_capability_domain, caller_application, caller_role) (
-    max by (
-      caller_organization,
-      caller_business_domain,
-      caller_capability_domain,
-      caller_application,
-      caller_role,
-      target_namespace,
-      target_service,
-      target_scope
-    ) (
-      stellmap_registry_watch_sessions{watch_kind="instances"} > 0
-    )
-  )
-)
-```
-
-#### 3.4 最小推荐面板清单
-
-如果你希望先做一版最小但足够有用的 Grafana 看板，建议先上这 12 个面板：
-
-1. HTTP 总 QPS
-2. HTTP 错误率
-3. HTTP p95
-4. watch 连接数
-5. gRPC 总 QPS
-6. gRPC 错误率
-7. gRPC p95
-8. snapshot 吞吐
-9. replication sync age
-10. 当前注册实例 Top 10 应用
-11. 当前被 watch 最多的下游服务 Top 10
-12. 当前 namespace 级 watch Top 10 调用方
