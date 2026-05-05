@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+dist
+tmp
+bin
+coverage.out
+*.log
+*.test
+data

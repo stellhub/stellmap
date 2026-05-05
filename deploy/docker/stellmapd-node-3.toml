@@ -1,0 +1,32 @@
+[node]
+id = 3
+cluster_id = 100
+region = "default"
+data_dir = "/var/lib/stellmap/node-3"
+
+[server]
+http_addr = "0.0.0.0:8080"
+admin_addr = "127.0.0.1:18080"
+grpc_addr = "0.0.0.0:19090"
+
+[auth]
+admin_token = "stellmap"
+replication_token = "stellmap"
+prometheus_sd_token = "stellmap"
+
+[cluster]
+peer_ids = "1,2,3"
+peer_grpc_addrs = "1=stellmap-node1:19090,2=stellmap-node2:19090,3=stellmap-node3:19090"
+peer_http_addrs = "1=stellmap-node1:8080,2=stellmap-node2:8080,3=stellmap-node3:8080"
+peer_admin_addrs = "1=stellmap-node1:18080,2=stellmap-node2:18080,3=stellmap-node3:18080"
+
+[runtime]
+request_timeout = "5s"
+shutdown_timeout = "10s"
+
+[registry]
+cleanup_interval = "1s"
+cleanup_delete_limit = 128
+
+[replication]
+targets_file = ""

@@ -2,6 +2,10 @@
 
 当前仓库已经切换为“GitHub Actions 直推 CVM + 本地 `/data/start.sh` 启动”的部署方式。
 
+如果你希望使用 Docker / Docker Compose 部署，请参考：
+
+- [docs/docker-cluster-deploy.md](/E:/PersonalCode/GoProject/stellmap/docs/docker-cluster-deploy.md)
+
 ## 1. 目标机最终文件
 
 每次发布后，目标 CVM 的 `/data` 目录下会有 4 个文件：
