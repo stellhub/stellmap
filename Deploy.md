@@ -38,7 +38,38 @@ sudo bash /data/start.sh
 4. 生成 `systemd` 服务 `stellmapd`
 5. 启动并做健康检查
 
-## 3. 默认配置文件
+## 3. 本地构建 + start.sh 启动
+
+如果你希望先在当前源码目录本地构建发布包，再把产物目录直接交给 `start.sh` 安装启动，可以执行：
+
+```bash
+bash deploy/build.sh
+```
+
+默认会输出到：
+
+- `dist/release/stellmapd`
+- `dist/release/stellmapctl`
+- `dist/release/stellmapd.toml`
+- `dist/release/start.sh`
+
+这 4 个文件的目录结构与目标机 `/data` 目录约定一致，因此可以直接进入输出目录执行：
+
+```bash
+cd dist/release
+sudo bash ./start.sh
+```
+
+如果你需要覆盖构建参数，例如指定输出目录或目标平台，可以执行：
+
+```bash
+bash deploy/build.sh \
+  --output-dir ./dist/release \
+  --goos linux \
+  --goarch amd64
+```
+
+## 4. 默认配置文件
 
 默认配置文件是：
 
@@ -63,7 +94,7 @@ sudo bash /data/start.sh
 - `cluster.peer_grpc_addrs`
 - `cluster.peer_admin_addrs`
 
-## 4. GitHub Actions 直推方式
+## 5. GitHub Actions 直推方式
 
 工作流文件：
 
@@ -78,7 +109,7 @@ sudo bash /data/start.sh
 5. 通过 SSH 上传到一台或多台 CVM 的 `/data`
 6. 可选执行远程命令，例如 `sudo bash /data/start.sh`
 
-## 5. 需要配置的 Actions Secrets / Variables
+## 6. 需要配置的 Actions Secrets / Variables
 
 - `VM_HOSTS`
 - `VM_USER`
@@ -101,7 +132,7 @@ sudo bash /data/start.sh
 sudo bash /data/start.sh
 ```
 
-## 6. 常用检查命令
+## 7. 常用检查命令
 
 查看服务状态：
 
